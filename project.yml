@@ -1,4 +1,4 @@
-name: AnkiClone
+name: RecallRx
 options:
   bundleIdPrefix: com.recallrx
   deploymentTarget:
@@ -16,14 +16,16 @@ settings:
   INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
   INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
 targets:
-  AnkiClone:
+  RecallRx:
     type: application
     platform: iOS
     sources:
-      - path: AnkiClone
+      - path: RecallRx
         excludes:
           - "*.xcodeproj"
           - "*.xcworkspace"
+          - "Vendor/zstd/zstddeclib.c"
+          - "Vendor/zstd/LICENSE"
     dependencies:
       - target: RecallRxWidget
         embed: true
@@ -34,7 +36,10 @@ targets:
       INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "RecallRx turns your spoken answer into a grade with on-device speech recognition."
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-      CODE_SIGN_ENTITLEMENTS: AnkiClone/RecallRx.entitlements
+      CODE_SIGN_ENTITLEMENTS: RecallRx/RecallRx.entitlements
+      SWIFT_OBJC_BRIDGING_HEADER: RecallRx/Vendor/zstd/RecallRx-Bridging-Header.h
+      HEADER_SEARCH_PATHS: $(SRCROOT)/RecallRx/Vendor/zstd
+      ENABLE_TESTABILITY: YES
       DEVELOPMENT_TEAM: ""
       CODE_SIGN_STYLE: Automatic
       SWIFT_EMIT_LOC_STRINGS: YES
@@ -55,3 +60,17 @@ targets:
       CODE_SIGN_STYLE: Automatic
       DEVELOPMENT_TEAM: ""
       SWIFT_EMIT_LOC_STRINGS: YES
+  RecallRxTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RecallRxTests
+    dependencies:
+      - target: RecallRx
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.recallrx.app.tests
+      GENERATE_INFOPLIST_FILE: YES
+      TEST_HOST: $(BUILT_PRODUCTS_DIR)/RecallRx.app/RecallRx
+      BUNDLE_LOADER: $(TEST_HOST)
+      DEVELOPMENT_TEAM: ""
+      CODE_SIGN_STYLE: Automatic

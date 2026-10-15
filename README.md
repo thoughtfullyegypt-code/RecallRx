@@ -13,7 +13,7 @@ Built natively in Swift 5.9 with SwiftUI and SwiftData for iOS 17.0+.
 - **Card Drafts from Notes:** On-device pattern extraction from PDFs and clinical text, not a cloud model. Drug dosages and lab values are marked `"⚠️ Verify against your source"`.
 - **iCloud Sync:** Sync Now uses the private CloudKit database `iCloud.com.recallrx.app`. Cards merge by last write. Review logs are unioned by id. The app does not report success unless CloudKit accepts the change. Enable that iCloud container on the App ID before shipping.
 - **QBank Fast-Unsuspend:** Native tokenizer matching UWorld and AMBOSS question IDs for rapid bulk unsuspending.
-- **AnKing Hierarchical Tag Explorer:** Nested tag trie with fast card count aggregation and search filtering.
+- **Hierarchical tag explorer:** Nested tag trie with fast card count aggregation and search filtering.
 - **Interactive One-by-One Cloze & Image Occlusion:** Multi-cloze note type support and vector SVG diagram occlusion.
 - **8BitDo Bluetooth Remote & Burnout Shield:** Gamepad/remote study routing with ±5% fuzzy interval smoothing and overdue backlog redistribution.
 - **Home Screen Widget:** A WidgetKit extension reads the due count from the `group.com.recallrx.app` app group. Add that App Group to both the app and the widget in the developer portal.
@@ -21,11 +21,11 @@ Built natively in Swift 5.9 with SwiftUI and SwiftData for iOS 17.0+.
 
 ---
 
-## Diagnostic Test Suite
+## Tests
 
-Includes a comprehensive 20/20 test suite verifying scheduling math, CloudKit sync resolution, hands-free voice driving invariants, dosage safety flags, and database restore fidelity.
+`RecallRxTests` is an XCTest target. It builds an in-memory SwiftData store (`isStoredInMemoryOnly: true`, `cloudKitDatabase: .none`) and runs the feature suite there. In Xcode, press Command-U. The tests are not part of the app, and they do not write into the library you study with.
 
-Run tests directly inside the app or launch with the `--run-tests` argument.
+SwiftData is created with `cloudKitDatabase: .none`. Sync goes through `CloudSyncManager` and the private CloudKit database. Automatic Core Data mirroring crashes on launch because `Deck.cards` and `Card.reviewLogs` are non-optional.
 
 ---
 
