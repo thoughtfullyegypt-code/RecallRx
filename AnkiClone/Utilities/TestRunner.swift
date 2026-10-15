@@ -226,7 +226,7 @@ final class TestRunner {
         
         let passed = initialStabilitiesValid && retrievabilityValid && sensitivityValid && growthValid
         record(
-            name: "FSRS-5 Algorithm (Feature 5)",
+            name: "FSRS-6 Algorithm",
             passed: passed,
             details: passed ? "Validated DSR memory model: S0 scaling, power decay R(t), retention sensitivity (85% > 90% > 95%), and stability growth." : "FSRS calculation mismatch."
         )

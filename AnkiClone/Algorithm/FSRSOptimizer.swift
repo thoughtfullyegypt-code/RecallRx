@@ -76,10 +76,12 @@ final class FSRSOptimizer {
         
         // 2. Build review sequences per card
         var sequences = buildSequences(from: logs)
-        
-        // If testing with bypass and fewer than 10 review samples, augment with calibrated realistic review data
-        if sequences.flatMap({ $0.steps }).count < 10 {
+        var trainedOnSyntheticData = false
+
+        // Synthetic reviews are only for the in-app test bypass. Never save them as the user's memory.
+        if allowBypassMinReviews && sequences.flatMap({ $0.steps }).count < 10 {
             sequences.append(contentsOf: generateCalibratedSyntheticSequences())
+            trainedOnSyntheticData = true
         }
         
         let totalSamples = sequences.reduce(0) { $0 + max(0, $1.steps.count - 1) }
@@ -108,8 +110,9 @@ final class FSRSOptimizer {
             timestamp: Date()
         )
         
-        // 4. Save results to UserDefaults
-        saveOptimizationResult(result)
+        if !trainedOnSyntheticData {
+            saveOptimizationResult(result)
+        }
         
         return result
     }

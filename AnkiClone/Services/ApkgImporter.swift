@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import SQLite3
-import Compression
+import zlib
 
 /// Anki .apkg Binary Package Importer
 /// Unpacks .apkg archives (ZIP container), reads collection.anki2 SQLite database,
@@ -21,6 +21,7 @@ final class ApkgImporter {
         case invalidZipArchive
         case missingCollectionDatabase
         case sqliteError(String)
+        case unsupportedCollection(String)
         case emptyCollection
         
         var errorDescription: String? {
@@ -33,6 +34,8 @@ final class ApkgImporter {
                 return "Invalid .apkg format: missing collection.anki2 database inside archive."
             case .sqliteError(let msg):
                 return "SQLite database error: \(msg)"
+            case .unsupportedCollection(let msg):
+                return msg
             case .emptyCollection:
                 return "The .apkg package contains no importable cards or decks."
             }
@@ -56,7 +59,17 @@ final class ApkgImporter {
         // 3. Locate collection.anki2 or collection.anki21 SQLite database
         let dbURL = tempDir.appendingPathComponent("collection.anki2")
         let db21URL = tempDir.appendingPathComponent("collection.anki21")
-        let targetDBURL = FileManager.default.fileExists(atPath: dbURL.path) ? dbURL : (FileManager.default.fileExists(atPath: db21URL.path) ? db21URL : nil)
+        let db21bURL = tempDir.appendingPathComponent("collection.anki21b")
+        let targetDBURL: URL?
+        if FileManager.default.fileExists(atPath: dbURL.path) {
+            targetDBURL = dbURL
+        } else if FileManager.default.fileExists(atPath: db21URL.path) {
+            targetDBURL = db21URL
+        } else if FileManager.default.fileExists(atPath: db21bURL.path) {
+            throw ApkgError.unsupportedCollection("This package uses Anki's compressed collection.anki21b. In Anki, export again with \"Support older Anki versions\" turned on, then import that .apkg.")
+        } else {
+            targetDBURL = nil
+        }
         
         guard let databaseURL = targetDBURL else {
             throw ApkgError.missingCollectionDatabase
@@ -292,65 +305,122 @@ final class ApkgImporter {
         try pureSwiftUnzip(sourceURL: sourceURL, destinationURL: destinationURL)
     }
     
-    /// Pure Swift ZIP entry parser fallback using libcompression
+    private static func readUInt16(_ data: Data, _ offset: Int) -> UInt16 {
+        let b0 = UInt16(data[data.startIndex + offset])
+        let b1 = UInt16(data[data.startIndex + offset + 1])
+        return b0 | (b1 << 8)
+    }
+
+    private static func readUInt32(_ data: Data, _ offset: Int) -> UInt32 {
+        let b0 = UInt32(data[data.startIndex + offset])
+        let b1 = UInt32(data[data.startIndex + offset + 1])
+        let b2 = UInt32(data[data.startIndex + offset + 2])
+        let b3 = UInt32(data[data.startIndex + offset + 3])
+        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+    }
+
+    /// Pure Swift ZIP entry parser. Handles stored files, raw deflate, and data descriptors.
     private static func pureSwiftUnzip(sourceURL: URL, destinationURL: URL) throws {
         guard let data = try? Data(contentsOf: sourceURL) else {
             throw ApkgError.fileNotFound
         }
-        
+
         var offset = 0
         let count = data.count
-        
+
         while offset + 30 <= count {
-            // Local file header signature: 0x04034b50
-            let sig = data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: UInt32.self) }
+            let sig = readUInt32(data, offset)
             if sig != 0x04034b50 { break }
-            
-            let method = data.withUnsafeBytes { $0.load(fromByteOffset: offset + 8, as: UInt16.self) }
-            let compSize = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset + 18, as: UInt32.self) })
-            let uncompSize = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset + 22, as: UInt32.self) })
-            let nameLen = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset + 26, as: UInt16.self) })
-            let extraLen = Int(data.withUnsafeBytes { $0.load(fromByteOffset: offset + 28, as: UInt16.self) })
-            
+
+            let flags = readUInt16(data, offset + 6)
+            let method = readUInt16(data, offset + 8)
+            var compSize = Int(readUInt32(data, offset + 18))
+            var uncompSize = Int(readUInt32(data, offset + 22))
+            let nameLen = Int(readUInt16(data, offset + 26))
+            let extraLen = Int(readUInt16(data, offset + 28))
+
             let headerSize = 30 + nameLen + extraLen
-            guard offset + headerSize + compSize <= count else { break }
-            
+            guard offset + headerSize <= count else { break }
+
             let nameData = data.subdata(in: (offset + 30)..<(offset + 30 + nameLen))
             let filename = String(data: nameData, encoding: .utf8) ?? "file_\(offset)"
-            
-            let compData = data.subdata(in: (offset + headerSize)..<(offset + headerSize + compSize))
+            let dataStart = offset + headerSize
+
+            var dataEnd = dataStart + compSize
+            if (flags & 0x8) != 0 && compSize == 0 {
+                guard let located = locateDataDescriptor(data: data, from: dataStart) else { break }
+                compSize = located.compSize
+                uncompSize = located.uncompSize
+                dataEnd = located.dataEnd
+            }
+            guard dataEnd <= count, dataStart <= dataEnd else { break }
+
+            let compData = data.subdata(in: dataStart..<dataEnd)
             let outURL = destinationURL.appendingPathComponent(filename)
-            
-            if method == 0 { // Stored (no compression)
+            if filename.hasSuffix("/") {
+                try? FileManager.default.createDirectory(at: outURL, withIntermediateDirectories: true)
+            } else if method == 0 {
                 try? compData.write(to: outURL)
-            } else if method == 8 { // Deflate
-                if let decompressed = decompressDeflate(data: compData, uncompressedSize: uncompSize) {
+            } else if method == 8 {
+                if let decompressed = decompressDeflate(data: compData, uncompressedSize: uncompSize > 0 ? uncompSize : max(compData.count * 4, 64)) {
                     try? decompressed.write(to: outURL)
                 }
             }
-            
-            offset += headerSize + compSize
+
+            offset = dataEnd
+            if (flags & 0x8) != 0 && readUInt32(data, offset) == 0x08074b50 {
+                offset += 16
+            } else if (flags & 0x8) != 0 {
+                offset += 12
+            }
         }
     }
-    
-    private static func decompressDeflate(data: Data, uncompressedSize: Int) -> Data? {
-        guard uncompressedSize > 0 else { return Data() }
-        let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: uncompressedSize)
-        defer { destinationBuffer.deallocate() }
-        
-        let decompressedSize = data.withUnsafeBytes { (sourceBuffer: UnsafeRawBufferPointer) -> Int in
-            guard let baseAddress = sourceBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
-            return compression_decode_buffer(
-                destinationBuffer,
-                uncompressedSize,
-                baseAddress,
-                data.count,
-                nil,
-                COMPRESSION_ZLIB
-            )
+
+    private static func locateDataDescriptor(data: Data, from start: Int) -> (compSize: Int, uncompSize: Int, dataEnd: Int)? {
+        var scan = start
+        let count = data.count
+        while scan + 4 <= count {
+            let sig = readUInt32(data, scan)
+            if sig == 0x04034b50 || sig == 0x02014b50 {
+                if scan >= start + 16 && readUInt32(data, scan - 16) == 0x08074b50 {
+                    let comp = Int(readUInt32(data, scan - 8))
+                    let uncomp = Int(readUInt32(data, scan - 4))
+                    return (comp, uncomp, scan - 16)
+                }
+                if scan >= start + 12 {
+                    let comp = Int(readUInt32(data, scan - 8))
+                    let uncomp = Int(readUInt32(data, scan - 4))
+                    return (comp, uncomp, scan - 12)
+                }
+                return nil
+            }
+            scan += 1
         }
-        
-        guard decompressedSize > 0 else { return nil }
-        return Data(bytes: destinationBuffer, count: decompressedSize)
+        return nil
+    }
+
+    private static func decompressDeflate(data: Data, uncompressedSize: Int) -> Data? {
+        guard !data.isEmpty else { return Data() }
+        let capacity = max(uncompressedSize, data.count * 4, 64)
+        let output = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+        defer { output.deallocate() }
+
+        var stream = z_stream()
+        let initStatus = inflateInit2_(&stream, -15, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard initStatus == Z_OK else { return nil }
+        defer { inflateEnd(&stream) }
+
+        let decoded: Int = data.withUnsafeBytes { raw in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return -1 }
+            stream.next_in = UnsafeMutablePointer(mutating: base)
+            stream.avail_in = uInt(data.count)
+            stream.next_out = output
+            stream.avail_out = uInt(capacity)
+            let result = inflate(&stream, Z_FINISH)
+            guard result == Z_STREAM_END || result == Z_OK else { return -1 }
+            return capacity - Int(stream.avail_out)
+        }
+        guard decoded > 0 else { return nil }
+        return Data(bytes: output, count: decoded)
     }
 }

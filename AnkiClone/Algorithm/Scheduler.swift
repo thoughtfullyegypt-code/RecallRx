@@ -4,7 +4,10 @@ import SwiftData
 final class Scheduler {
     // MARK: - Active Algorithm Configuration
     static var isFSRSEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "useFSRS")
+        if UserDefaults.standard.object(forKey: "useFSRS") == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "useFSRS")
     }
     
     static var isFSRSCustomized: Bool {
@@ -35,6 +38,8 @@ final class Scheduler {
     // MARK: - Review Execution
     static func applyReview(card: Card, rating: SM2Algorithm.Rating, timeTakenMs: Int, context: ModelContext) {
         let now = Date.now
+        let snapshot = ReviewUndoSnapshot.capture(card)
+        
         let intervalBefore = card.interval
         let easeFactorBefore = card.easeFactor
         let stateBefore = card.stateRaw
@@ -100,6 +105,7 @@ final class Scheduler {
         )
         
         context.insert(log)
+        ReviewUndoStore.save(id: log.id, snapshot: snapshot)
         if !card.reviewLogs.contains(where: { $0.id == log.id }) {
             card.reviewLogs.append(log)
         }
@@ -122,25 +128,27 @@ final class Scheduler {
             return false
         }
         
-        card.interval = lastLog.intervalBefore
-        card.easeFactor = lastLog.easeFactorBefore
-        card.stateRaw = lastLog.cardStateBefore
-        
-        if lastLog.cardStateBefore == CardState.review.rawValue && lastLog.rating == SM2Algorithm.Rating.again.rawValue {
-            card.lapseCount = max(0, card.lapseCount - 1)
+        if let snapshot = ReviewUndoStore.take(id: lastLog.id) {
+            snapshot.restore(onto: card)
+        } else {
+            card.interval = lastLog.intervalBefore
+            card.easeFactor = lastLog.easeFactorBefore
+            card.stateRaw = lastLog.cardStateBefore
+            
+            if lastLog.cardStateBefore == CardState.review.rawValue && lastLog.rating == SM2Algorithm.Rating.again.rawValue {
+                card.lapseCount = max(0, card.lapseCount - 1)
+            }
+            
+            if lastLog.rating != SM2Algorithm.Rating.again.rawValue {
+                card.repetitions = max(0, card.repetitions - 1)
+            }
+            
+            let previousLogs = card.reviewLogs
+                .filter { $0.id != lastLog.id }
+                .sorted(by: { $0.reviewDate > $1.reviewDate })
+            card.lastReviewDate = previousLogs.first?.reviewDate
+            card.dueDate = .now
         }
-        
-        if lastLog.rating != SM2Algorithm.Rating.again.rawValue {
-            card.repetitions = max(0, card.repetitions - 1)
-        }
-        
-        let previousLogs = card.reviewLogs
-            .filter { $0.id != lastLog.id }
-            .sorted(by: { $0.reviewDate > $1.reviewDate })
-        card.lastReviewDate = previousLogs.first?.reviewDate
-        
-        // Make the card due immediately for retry
-        card.dueDate = .now
         card.modifiedAt = .now
         
         if let index = card.reviewLogs.firstIndex(where: { $0.id == lastLog.id }) {
@@ -223,5 +231,90 @@ final class Scheduler {
             card.isBuried = false
             card.modifiedAt = .now
         }
+    }
+}
+
+private struct ReviewUndoSnapshot: Codable {
+    let interval: Double
+    let easeFactor: Double
+    let repetitions: Int
+    let stateRaw: String
+    let learningStep: Int
+    let dueDate: Date
+    let lastReviewDate: Date?
+    let fsrsStability: Double
+    let fsrsDifficulty: Double
+    let fsrsReps: Int
+    let fsrsLapses: Int
+    let lapseCount: Int
+
+    static func capture(_ card: Card) -> ReviewUndoSnapshot {
+        ReviewUndoSnapshot(
+            interval: card.interval,
+            easeFactor: card.easeFactor,
+            repetitions: card.repetitions,
+            stateRaw: card.stateRaw,
+            learningStep: card.learningStep,
+            dueDate: card.dueDate,
+            lastReviewDate: card.lastReviewDate,
+            fsrsStability: card.fsrsStability,
+            fsrsDifficulty: card.fsrsDifficulty,
+            fsrsReps: card.fsrsReps,
+            fsrsLapses: card.fsrsLapses,
+            lapseCount: card.lapseCount
+        )
+    }
+
+    func restore(onto card: Card) {
+        card.interval = interval
+        card.easeFactor = easeFactor
+        card.repetitions = repetitions
+        card.stateRaw = stateRaw
+        card.learningStep = learningStep
+        card.dueDate = dueDate
+        card.lastReviewDate = lastReviewDate
+        card.fsrsStability = fsrsStability
+        card.fsrsDifficulty = fsrsDifficulty
+        card.fsrsReps = fsrsReps
+        card.fsrsLapses = fsrsLapses
+        card.lapseCount = lapseCount
+    }
+}
+
+private enum ReviewUndoStore {
+    private static var fileURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("recallrx-undo-snapshots.json")
+    }
+
+    private static func load() -> [String: ReviewUndoSnapshot] {
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode([String: ReviewUndoSnapshot].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    static func save(id: UUID, snapshot: ReviewUndoSnapshot) {
+        var all = load()
+        all[id.uuidString] = snapshot
+        if all.count > 400 {
+            let extras = all.keys.sorted().dropLast(400)
+            for key in extras { all.removeValue(forKey: key) }
+        }
+        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(all) {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    static func take(id: UUID) -> ReviewUndoSnapshot? {
+        var all = load()
+        let snapshot = all.removeValue(forKey: id.uuidString)
+        if let data = try? JSONEncoder().encode(all) {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+        return snapshot
     }
 }

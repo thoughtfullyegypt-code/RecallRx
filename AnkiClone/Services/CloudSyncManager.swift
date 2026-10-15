@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Network
+import CloudKit
 
 /// Conflict Resolution Strategies for CloudKit Multi-Device Sync
 enum ConflictResolutionStrategy: String, Sendable {
@@ -162,6 +163,10 @@ final class CloudSyncManager: ObservableObject {
     private let pathMonitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.recallrx.networkmonitor")
     private var isNetworkAvailable: Bool = true
+    private let containerIdentifier = "iCloud.com.recallrx.app"
+    private let zoneID = CKRecordZone.ID(zoneName: "RecallRx", ownerName: CKCurrentUserDefaultName)
+    private let cardRecordType = "Card"
+    private let reviewRecordType = "ReviewLog"
     
     private init() {
         startNetworkMonitoring()
@@ -283,28 +288,226 @@ final class CloudSyncManager: ObservableObject {
     
     // MARK: - Sync Execution & Simulation
     
-    /// Triggers a local-first sync cycle
+    /// Pulls private iCloud changes, then pushes local cards and review logs.
+    /// Status becomes `.synced` only after CloudKit accepts the write.
     func triggerSync(context: ModelContext) async {
         guard isNetworkAvailable else {
-            self.syncStatus = .offline(reason: "Airplane Mode or No Internet")
+            self.syncStatus = .offline(reason: "No connection")
             return
         }
-        
-        self.syncStatus = .syncing(progress: 0.1)
-        
-        // Step 1: Query local cards and review logs
-        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms async simulation
-        self.syncStatus = .syncing(progress: 0.45)
-        
-        // Step 2: Push local changes & pull CloudKit records
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        self.syncStatus = .syncing(progress: 0.85)
-        
-        // Step 3: Complete sync
-        let now = Date()
-        self.lastSyncDate = now
-        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "last_cloud_sync_timestamp")
-        self.syncStatus = .synced(lastSync: now)
+
+        let container = CKContainer(identifier: containerIdentifier)
+        let database = container.privateCloudDatabase
+        self.syncStatus = .syncing(progress: 0.08)
+
+        do {
+            let account = try await container.accountStatus()
+            guard account == .available else {
+                self.syncStatus = .offline(reason: accountStatusText(account))
+                return
+            }
+
+            _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
+            self.syncStatus = .syncing(progress: 0.3)
+            try await pullChanges(database: database, context: context)
+            self.syncStatus = .syncing(progress: 0.65)
+            try await pushLocalChanges(database: database, context: context)
+
+            let now = Date()
+            self.lastSyncDate = now
+            UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "last_cloud_sync_timestamp")
+            self.syncStatus = .synced(lastSync: now)
+        } catch {
+            self.syncStatus = .error(message: error.localizedDescription)
+        }
+    }
+
+    private func accountStatusText(_ status: CKAccountStatus) -> String {
+        switch status {
+        case .available: return "Available"
+        case .noAccount: return "Sign in to iCloud"
+        case .restricted: return "iCloud restricted"
+        case .couldNotDetermine: return "iCloud status unknown"
+        case .temporarilyUnavailable: return "iCloud unavailable"
+        @unknown default: return "iCloud unavailable"
+        }
+    }
+
+    private func pullChanges(database: CKDatabase, context: ModelContext) async throws {
+        var token = loadChangeToken()
+        var more = true
+        while more {
+            let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
+            for (_, result) in changes.modificationResultsByID {
+                if case .success(let modification) = result {
+                    applyRemoteRecord(modification.record, context: context)
+                }
+            }
+            token = changes.changeToken
+            more = changes.moreComing
+        }
+        if let token {
+            saveChangeToken(token)
+        }
+        try? context.save()
+    }
+
+    private func pushLocalChanges(database: CKDatabase, context: ModelContext) async throws {
+        let lastPush = UserDefaults.standard.object(forKey: "last_cloud_sync_timestamp") as? Double
+        let since = lastPush.map { Date(timeIntervalSince1970: $0) } ?? .distantPast
+
+        let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+        let logs = (try? context.fetch(FetchDescriptor<ReviewLog>())) ?? []
+        var records: [CKRecord] = []
+        records.reserveCapacity(cards.count + logs.count)
+
+        for card in cards where card.modifiedAt > since {
+            records.append(record(for: card))
+        }
+        for log in logs where log.reviewDate > since {
+            records.append(record(for: log))
+        }
+
+        let batchSize = 200
+        var index = 0
+        while index < records.count {
+            let end = min(index + batchSize, records.count)
+            let batch = Array(records[index..<end])
+            let outcome = try await database.modifyRecords(saving: batch, deleting: [], savePolicy: .changedKeys, atomically: false)
+            for (_, result) in outcome.saveResults {
+                if case .failure(let error) = result {
+                    throw error
+                }
+            }
+            index = end
+        }
+    }
+
+    private func applyRemoteRecord(_ record: CKRecord, context: ModelContext) {
+        if record.recordType == cardRecordType {
+            applyRemoteCard(record, context: context)
+        } else if record.recordType == reviewRecordType {
+            applyRemoteReview(record, context: context)
+        }
+    }
+
+    private func applyRemoteCard(_ record: CKRecord, context: ModelContext) {
+        guard let id = UUID(uuidString: record.recordID.recordName) else { return }
+        let payload = RemoteCardPayload(
+            id: id,
+            front: record["front"] as? String ?? "",
+            back: record["back"] as? String ?? "",
+            modifiedAt: record["modifiedAt"] as? Date ?? .distantPast,
+            interval: record["interval"] as? Double ?? 0,
+            easeFactor: record["easeFactor"] as? Double ?? 2.5,
+            repetitions: record["repetitions"] as? Int ?? 0,
+            dueDate: record["dueDate"] as? Date ?? Date(),
+            stateRaw: record["stateRaw"] as? String ?? CardState.new.rawValue,
+            fsrsStability: record["fsrsStability"] as? Double ?? 0,
+            fsrsDifficulty: record["fsrsDifficulty"] as? Double ?? 0,
+            isSuspended: record["isSuspended"] as? Bool ?? false,
+            isBuried: record["isBuried"] as? Bool ?? false,
+            tags: record["tags"] as? [String] ?? [],
+            deckID: (record["deckID"] as? String).flatMap(UUID.init(uuidString:))
+        )
+
+        let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+        if let local = cards.first(where: { $0.id == id }) {
+            _ = resolveCardConflict(localCard: local, remoteCard: payload)
+            return
+        }
+
+        let decks = (try? context.fetch(FetchDescriptor<Deck>())) ?? []
+        let deck = decks.first(where: { $0.id == payload.deckID }) ?? decks.first(where: { $0.name == "iCloud" }) ?? {
+            let created = Deck(name: "iCloud", descriptionText: "Cards merged from iCloud")
+            context.insert(created)
+            return created
+        }()
+        let card = Card(
+            id: id,
+            front: payload.front,
+            back: payload.back,
+            deck: deck,
+            tags: payload.tags,
+            modifiedAt: payload.modifiedAt,
+            isSuspended: payload.isSuspended,
+            isBuried: payload.isBuried,
+            interval: payload.interval,
+            easeFactor: payload.easeFactor,
+            repetitions: payload.repetitions,
+            dueDate: payload.dueDate,
+            stateRaw: payload.stateRaw,
+            fsrsStability: payload.fsrsStability,
+            fsrsDifficulty: payload.fsrsDifficulty
+        )
+        context.insert(card)
+        deck.cards.append(card)
+    }
+
+    private func applyRemoteReview(_ record: CKRecord, context: ModelContext) {
+        guard
+            let id = UUID(uuidString: record.recordID.recordName),
+            let cardIDString = record["cardID"] as? String,
+            let cardID = UUID(uuidString: cardIDString)
+        else { return }
+
+        let payload = RemoteReviewLogPayload(
+            id: id,
+            cardID: cardID,
+            rating: record["rating"] as? Int ?? 0,
+            reviewDate: record["reviewDate"] as? Date ?? Date(),
+            timeTakenMs: record["timeTakenMs"] as? Int ?? 0,
+            intervalBefore: record["intervalBefore"] as? Double ?? 0,
+            intervalAfter: record["intervalAfter"] as? Double ?? 0
+        )
+        let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
+        guard let card = cards.first(where: { $0.id == cardID }) else { return }
+        _ = mergeReviewLogs(remoteLogs: [payload], cardsByID: [cardID: card], context: context)
+    }
+
+    private func record(for card: Card) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: card.id.uuidString, zoneID: zoneID)
+        let record = CKRecord(recordType: cardRecordType, recordID: recordID)
+        record["front"] = card.front as NSString
+        record["back"] = card.back as NSString
+        record["modifiedAt"] = card.modifiedAt as NSDate
+        record["interval"] = card.interval as NSNumber
+        record["easeFactor"] = card.easeFactor as NSNumber
+        record["repetitions"] = card.repetitions as NSNumber
+        record["dueDate"] = card.dueDate as NSDate
+        record["stateRaw"] = card.stateRaw as NSString
+        record["fsrsStability"] = card.fsrsStability as NSNumber
+        record["fsrsDifficulty"] = card.fsrsDifficulty as NSNumber
+        record["isSuspended"] = card.isSuspended as NSNumber
+        record["isBuried"] = card.isBuried as NSNumber
+        record["tags"] = card.tags as NSArray
+        if let deckID = card.deck?.id.uuidString {
+            record["deckID"] = deckID as NSString
+        }
+        return record
+    }
+
+    private func record(for log: ReviewLog) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: log.id.uuidString, zoneID: zoneID)
+        let record = CKRecord(recordType: reviewRecordType, recordID: recordID)
+        record["cardID"] = (log.card?.id.uuidString ?? "") as NSString
+        record["rating"] = log.rating as NSNumber
+        record["reviewDate"] = log.reviewDate as NSDate
+        record["timeTakenMs"] = log.timeTakenMs as NSNumber
+        record["intervalBefore"] = log.intervalBefore as NSNumber
+        record["intervalAfter"] = log.intervalAfter as NSNumber
+        return record
+    }
+
+    private func loadChangeToken() -> CKServerChangeToken? {
+        guard let data = UserDefaults.standard.data(forKey: "ck_recallrx_zone_token") else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
+    }
+
+    private func saveChangeToken(_ token: CKServerChangeToken) {
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
+            UserDefaults.standard.set(data, forKey: "ck_recallrx_zone_token")
+        }
     }
     
     /// Simulates multi-device sync conflict resolution between Device A and Device B

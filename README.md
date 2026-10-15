@@ -8,15 +8,15 @@ Built natively in Swift 5.9 with SwiftUI and SwiftData for iOS 17.0+.
 
 ## Key Features
 
-- **FSRS-6 & SM-2 Schedulers:** Built-in modern FSRS-6 (21 parameters) memory model with on-device Adam weight training, statistical significance safeguards (1,000+ review threshold), and traditional SuperMemo SM-2 fallback.
-- **Hands-Free Driving Mode:** 100% on-device hands-free voice review utilizing `AVSpeechSynthesizer`, `SFSpeechRecognizer` with contextual answer vocabulary injection, medical synonyms/acronyms dictionary, strict NEVER-Easy safety invariant, and a post-drive parked review audit list.
-- **AI Card Generation from Notes:** On-device AI draft concept extraction from PDFs and clinical text with automatic safety markers for drug dosages and lab values (`"⚠️ Verify against your source"`).
-- **Local-First CloudKit Sync:** Non-destructive deterministic conflict resolution engine (timestamp/UUID set union for review logs, Last-Write-Wins on cards).
+- **FSRS-6 & SM-2 Schedulers:** FSRS-6 uses the current 21-parameter defaults, trainable decay, same-day stability, and Anki-style learning steps. SM-2 remains in Settings. Undo restores stability, difficulty, and interval. Weight training refuses to save synthetic reviews as your memory.
+- **Hands-Free Driving Mode:** On-device `AVSpeechSynthesizer` and `SFSpeechRecognizer`. Microphone and speech permission are requested before listening. Easy is never assigned. Ambiguous abbreviations such as MS and AS are not expanded both ways.
+- **Card Drafts from Notes:** On-device pattern extraction from PDFs and clinical text, not a cloud model. Drug dosages and lab values are marked `"⚠️ Verify against your source"`.
+- **iCloud Sync:** Sync Now uses the private CloudKit database `iCloud.com.recallrx.app`. Cards merge by last write. Review logs are unioned by id. The app does not report success unless CloudKit accepts the change. Enable that iCloud container on the App ID before shipping.
 - **QBank Fast-Unsuspend:** Native tokenizer matching UWorld and AMBOSS question IDs for rapid bulk unsuspending.
 - **AnKing Hierarchical Tag Explorer:** Nested tag trie with fast card count aggregation and search filtering.
 - **Interactive One-by-One Cloze & Image Occlusion:** Multi-cloze note type support and vector SVG diagram occlusion.
 - **8BitDo Bluetooth Remote & Burnout Shield:** Gamepad/remote study routing with ±5% fuzzy interval smoothing and overdue backlog redistribution.
-- **Automated Rolling Backups:** 7-day rolling local JSON snapshots independent of cloud sync.
+- **Home Screen Widget:** A WidgetKit extension reads the due count from the `group.com.recallrx.app` app group. Add that App Group to both the app and the widget in the developer portal.
 - **14 Immutable Free-Forever Guarantees:** All core study, FSRS, driving mode, and backup features are permanently free.
 
 ---

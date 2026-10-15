@@ -76,7 +76,8 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     @Published private(set) var currentIndex: Int = 0
     @Published private(set) var totalEligibleCards: Int = 0
     @Published var silenceTimeoutSeconds: Double = 7.0 // Configurable 6-8s
-    @Published var isMuted: Bool = false
+    @Published private(set) var permissionMessage: String = ""
+    private var tapInstalled = false
     
     private let speechSynthesizer = AVSpeechSynthesizer()
     private var speechRecognizer: SFSpeechRecognizer?
@@ -104,13 +105,10 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         "copd": ["chronic obstructive pulmonary disease"],
         "pcr": ["polymerase chain reaction"],
         "gerd": ["acid reflux", "gastroesophageal reflux disease"],
-        "ar": ["aortic regurgitation"],
-        "as": ["aortic stenosis"],
-        "ms": ["mitral stenosis", "multiple sclerosis"],
         "ace inhibitor": ["lisinopril", "enalapril", "ramipril"],
         "arb": ["losartan", "valsartan"],
         "dvt": ["deep vein thrombosis"],
-        "pci": ["percutaneous coronary intervention", "percutaneous", "coronary", "angioplasty"],
+        "pci": ["percutaneous coronary intervention", "angioplasty"],
         "percutaneous": ["pci"],
         "coronary": ["pci"],
         "intervention": ["pci"]
@@ -127,6 +125,16 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         setupRemoteCommands()
     }
     
+    private static func requestPermissions() async -> Bool {
+        let speechAllowed = await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                continuation.resume(returning: status == .authorized)
+            }
+        }
+        guard speechAllowed else { return false }
+        return await AVAudioApplication.requestRecordPermission()
+    }
+
     // MARK: - Audio Session & Remote Controls
     
     private func configureAudioSession() {
@@ -206,19 +214,28 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     // MARK: - Session Lifecycle
     
     func startSession(cards: [Card], maxCards: Int = 25) {
-        configureAudioSession()
         self.sessionMaxCards = maxCards
         self.eligibleCards = Self.filterEligibleCards(from: cards, maxLimit: maxCards)
         self.totalEligibleCards = eligibleCards.count
         self.sessionHistory.removeAll()
         self.currentIndex = 0
-        
+        self.permissionMessage = ""
+
         guard !eligibleCards.isEmpty else {
             self.state = .completed
             return
         }
-        
-        presentCard(at: 0)
+
+        Task {
+            let allowed = await Self.requestPermissions()
+            if !allowed {
+                self.permissionMessage = "Microphone and speech recognition are required. They stay on this iPhone."
+                self.state = .completed
+                return
+            }
+            self.configureAudioSession()
+            self.presentCard(at: 0)
+        }
     }
     
     func pauseSession() {
@@ -347,10 +364,14 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         
         let node = audioEngine.inputNode
         let recordingFormat = node.outputFormat(forBus: 0)
-        node.removeTap(onBus: 0)
+        if tapInstalled {
+            node.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         node.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             self.recognitionRequest?.append(buffer)
         }
+        tapInstalled = true
         
         do {
             audioEngine.prepare()
@@ -387,8 +408,13 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     }
     
     private func stopListening() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        if tapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
@@ -541,7 +567,8 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
             
             // Substring fuzzy matching
             if spokenTokens.contains(where: { token in
-                token.hasPrefix(exp) || exp.hasPrefix(token) || levenshteinDistance(token, exp) <= 2
+                guard token.count >= 5, exp.count >= 5 else { return false }
+                return token.hasPrefix(exp) || exp.hasPrefix(token) || levenshteinDistance(token, exp) <= 1
             }) {
                 matches += 0.8
             }

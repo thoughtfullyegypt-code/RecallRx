@@ -146,6 +146,13 @@ struct DrivingModeView: View {
                             Text("Reviewed \(drivingManager.sessionHistory.count) cards hands-free.")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
+                            if !drivingManager.permissionMessage.isEmpty {
+                                Text(drivingManager.permissionMessage)
+                                    .font(.footnote)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundColor(.orange)
+                                    .padding(.horizontal, 24)
+                            }
                             
                             Button {
                                 localReviewRecords = drivingManager.sessionHistory

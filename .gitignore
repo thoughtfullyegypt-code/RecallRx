@@ -13,4 +13,4 @@ xcuserdata/
 # Simulator & temporary outputs
 navigate.txt
 TestResults.txt
-*.png
+screenshots/

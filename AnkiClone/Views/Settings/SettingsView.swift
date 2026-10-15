@@ -16,7 +16,7 @@ struct SettingsView: View {
     @AppStorage("defaultMaxReviewsPerDay") private var defaultMaxReviewsPerDay: Int = 200
 
     // Review Settings
-    @AppStorage("useFSRS") private var useFSRS: Bool = false
+    @AppStorage("useFSRS") private var useFSRS: Bool = true
     @AppStorage("fsrsTargetRetention") private var fsrsTargetRetention: Double = 0.90
     @AppStorage("showNextReviewTime") private var showNextReviewTime: Bool = true
     @AppStorage("learningSteps") private var learningSteps: String = "1m 10m"
@@ -568,7 +568,7 @@ struct SettingsView: View {
                 } header: {
                     Text("CloudKit Multi-Device Sync")
                 } footer: {
-                    Text("RecallRx uses a local-first conflict resolution engine. Review logs are merged via timestamp/UUID union so no review is ever lost or silently overwritten.")
+                    Text("Cards stay on this iPhone first. Sync Now copies them to your private iCloud database and merges other devices for real. Cards use last-write-wins. Review history is unioned, so a review is never deleted by a conflict. If you are not signed into iCloud, RecallRx will say so instead of pretending the sync worked.")
                 }
                 .id("cloud_sync_settings")
 

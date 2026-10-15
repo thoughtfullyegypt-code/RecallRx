@@ -207,8 +207,7 @@ final class Card {
     func retrievability(at date: Date = Date()) -> Double {
         guard fsrsStability > 0 else { return 1.0 }
         let elapsedDays = max(0.0, date.timeIntervalSince(lastReviewDate ?? createdAt) / 86400.0)
-        let factor = 19.0 / 81.0
-        return pow(1.0 + factor * (elapsedDays / fsrsStability), -0.5)
+        return FSRSAlgorithm.retrievability(stability: fsrsStability, elapsedDays: elapsedDays, parameters: Scheduler.fsrsParameters)
     }
     
     var fsrsDifficultyDescription: String {
