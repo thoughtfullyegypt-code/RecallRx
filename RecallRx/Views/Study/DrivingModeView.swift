@@ -11,6 +11,7 @@ struct DrivingModeView: View {
     
     @State private var showingParkedAudit: Bool = false
     @State private var localReviewRecords: [DriveCardReviewRecord] = []
+    @State private var saveError: String?
     
     var body: some View {
         NavigationStack {
@@ -242,12 +243,6 @@ struct DrivingModeView: View {
                 parkedReviewSheet
             }
             .onAppear {
-                if deck.cards.allSatisfy({ $0.interval < 1.0 && $0.state != .review }) {
-                    for card in deck.cards.prefix(5) {
-                        card.interval = 3.0
-                        card.stateRaw = CardState.review.rawValue
-                    }
-                }
                 drivingManager.startSession(cards: deck.cards, maxCards: 25)
             }
             .onDisappear {
@@ -255,11 +250,6 @@ struct DrivingModeView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenParkedAudit"))) { _ in
                 drivingManager.stopSession()
-                if drivingManager.sessionHistory.isEmpty {
-                    for card in deck.cards.prefix(2) {
-                        drivingManager.evaluateAnswer(card: card, spokenText: card.back)
-                    }
-                }
                 localReviewRecords = drivingManager.sessionHistory
                 showingParkedAudit = true
             }
@@ -330,6 +320,9 @@ struct DrivingModeView: View {
                     .padding(.vertical, 4)
                 }
             }
+            .alert("Reviews couldn't be saved", isPresented: Binding(
+                get: { saveError != nil }, set: { if !$0 { saveError = nil } }
+            )) { Button("Keep Reviewing", role: .cancel) { } } message: { Text(saveError ?? "") }
             .navigationTitle("Parked Review & Corrections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -349,11 +342,14 @@ struct DrivingModeView: View {
     }
     
     private func commitAndDismiss() {
-        for record in localReviewRecords {
+        while let record = localReviewRecords.first {
             let safeRating: Rating = (record.assignedRating == .easy) ? .good : record.assignedRating
-            Scheduler.applyReview(card: record.card, rating: safeRating, timeTakenMs: 6000, context: modelContext)
+            guard Scheduler.applyReview(card: record.card, rating: safeRating, timeTakenMs: 6000, context: modelContext) else {
+                saveError = "Some reviews could not be saved. Saved reviews are kept; the remaining reviews are still here for you to retry."
+                return
+            }
+            localReviewRecords.removeFirst()
         }
-        try? modelContext.save()
         dismiss()
     }
 }

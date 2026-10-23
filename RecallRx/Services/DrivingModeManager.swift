@@ -509,12 +509,16 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     // MARK: - Parked Review & Grade Adjustment
     
     /// Commits all final ratings from the driving session into the database
-    func commitSessionReviews(context: ModelContext) {
-        for record in sessionHistory {
-            // Guarantee "Easy" is never applied
+    @discardableResult
+    func commitSessionReviews(context: ModelContext) -> Bool {
+        while let record = sessionHistory.first {
             let finalRating: Rating = (record.assignedRating == .easy) ? .good : record.assignedRating
-            Scheduler.applyReview(card: record.card, rating: finalRating, timeTakenMs: 6000, context: context)
+            guard Scheduler.applyReview(card: record.card, rating: finalRating, timeTakenMs: 6000, context: context) else {
+                permissionMessage = "A review could not be saved. Remaining reviews are available to retry."
+                return false
+            }
+            sessionHistory.removeFirst()
         }
-        try? context.save()
+        return true
     }
 }

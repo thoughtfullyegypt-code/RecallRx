@@ -101,7 +101,7 @@ struct StudyView: View {
                             }
                         } else {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.good)
+                                _ = vm.rateCard(.good)
                             }
                         }
                     }
@@ -110,7 +110,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.again)
+                                _ = vm.rateCard(.again)
                             }
                         }
                     }
@@ -119,7 +119,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.hard)
+                                _ = vm.rateCard(.hard)
                             }
                         }
                     }
@@ -128,7 +128,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.good)
+                                _ = vm.rateCard(.good)
                             }
                         }
                     }
@@ -137,7 +137,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.easy)
+                                _ = vm.rateCard(.easy)
                             }
                         }
                     }
@@ -230,14 +230,14 @@ struct StudyView: View {
         remoteManager.onRateAgain = {
             if vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.again)
+                    _ = vm.rateCard(.again)
                 }
             }
         }
         remoteManager.onRateHard = {
             if vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.hard)
+                    _ = vm.rateCard(.hard)
                 }
             }
         }
@@ -250,14 +250,14 @@ struct StudyView: View {
                 }
             } else {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.good)
+                    _ = vm.rateCard(.good)
                 }
             }
         }
         remoteManager.onRateEasy = {
             if vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.easy)
+                    _ = vm.rateCard(.easy)
                 }
             }
         }
