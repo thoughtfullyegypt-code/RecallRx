@@ -53,6 +53,21 @@ struct RemoteCardPayload: Codable, Sendable {
     let isBuried: Bool
     let tags: [String]
     let deckID: UUID?
+    let version: Int
+    let noteTypeRaw: String?
+    let createdAt: Date?
+    let lastReviewDate: Date?
+    let lapseCount: Int?
+    let learningStep: Int?
+    let queueRaw: String?
+    let fsrsReps: Int?
+    let fsrsLapses: Int?
+    let extra: String?
+    let firstAid: String?
+    let sketchy: String?
+    let pathoma: String?
+    let clinicalPearls: String?
+    let buriedUntil: Date?
     
     init(
         id: UUID,
@@ -69,7 +84,22 @@ struct RemoteCardPayload: Codable, Sendable {
         isSuspended: Bool,
         isBuried: Bool,
         tags: [String],
-        deckID: UUID?
+        deckID: UUID?,
+        version: Int = 1,
+        noteTypeRaw: String? = nil,
+        createdAt: Date? = nil,
+        lastReviewDate: Date? = nil,
+        lapseCount: Int? = nil,
+        learningStep: Int? = nil,
+        queueRaw: String? = nil,
+        fsrsReps: Int? = nil,
+        fsrsLapses: Int? = nil,
+        extra: String? = nil,
+        firstAid: String? = nil,
+        sketchy: String? = nil,
+        pathoma: String? = nil,
+        clinicalPearls: String? = nil,
+        buriedUntil: Date? = nil
     ) {
         self.id = id
         self.front = front
@@ -86,6 +116,21 @@ struct RemoteCardPayload: Codable, Sendable {
         self.isBuried = isBuried
         self.tags = tags
         self.deckID = deckID
+        self.version = version
+        self.noteTypeRaw = noteTypeRaw
+        self.createdAt = createdAt
+        self.lastReviewDate = lastReviewDate
+        self.lapseCount = lapseCount
+        self.learningStep = learningStep
+        self.queueRaw = queueRaw
+        self.fsrsReps = fsrsReps
+        self.fsrsLapses = fsrsLapses
+        self.extra = extra
+        self.firstAid = firstAid
+        self.sketchy = sketchy
+        self.pathoma = pathoma
+        self.clinicalPearls = clinicalPearls
+        self.buriedUntil = buriedUntil
     }
 }
 
@@ -168,8 +213,24 @@ final class CloudSyncManager: ObservableObject {
     private let cardRecordType = "Card"
     private let reviewRecordType = "ReviewLog"
     
-    private init() {
-        startNetworkMonitoring()
+    private let defaults: UserDefaults
+    private let persistChanges: (ModelContext) throws -> Void
+    private let journalKey = "recallrx_sync_journal_v1"
+    private let deckRecordType = "Deck"
+    private let deletionRecordType = "Deletion"
+
+    init(defaults: UserDefaults = .standard, monitorNetwork: Bool = true,
+         persistChanges: @escaping (ModelContext) throws -> Void = { try $0.save() }) {
+        self.defaults = defaults
+        self.persistChanges = persistChanges
+        if monitorNetwork && ProcessInfo.processInfo.environment["RECALLRX_TESTING"] != "1" {
+            startNetworkMonitoring()
+        }
+        if let date = defaults.object(forKey: "last_cloud_sync_timestamp") as? Date {
+            self.lastSyncDate = date
+        } else if let timestamp = defaults.object(forKey: "last_cloud_sync_timestamp") as? Double {
+            self.lastSyncDate = Date(timeIntervalSince1970: timestamp)
+        }
         loadAuditLog()
     }
     
@@ -206,7 +267,7 @@ final class CloudSyncManager: ObservableObject {
     ) -> Int {
         var mergedCount = 0
         let existingLogs = (try? context.fetch(FetchDescriptor<ReviewLog>())) ?? []
-        let existingLogIDs = Set(existingLogs.map { $0.id })
+        var existingLogIDs = Set(existingLogs.map { $0.id })
         
         for remote in remoteLogs {
             // If log already exists locally, skip
@@ -229,7 +290,8 @@ final class CloudSyncManager: ObservableObject {
                 intervalAfter: remote.intervalAfter
             )
             context.insert(newLog)
-            card.reviewLogs.append(newLog)
+            if !card.reviewLogs.contains(where: { $0.id == newLog.id }) { card.reviewLogs.append(newLog) }
+            existingLogIDs.insert(remote.id)
             mergedCount += 1
             
             recordConflictAudit(
@@ -241,7 +303,12 @@ final class CloudSyncManager: ObservableObject {
         }
         
         if mergedCount > 0 {
-            try? context.save()
+            do { try persistChanges(context) }
+            catch {
+                context.rollback()
+                syncStatus = .error(message: error.localizedDescription)
+                return 0
+            }
         }
         return mergedCount
     }
@@ -265,6 +332,22 @@ final class CloudSyncManager: ObservableObject {
             localCard.isSuspended = remoteCard.isSuspended
             localCard.isBuried = remoteCard.isBuried
             localCard.tags = remoteCard.tags
+            if let value = remoteCard.noteTypeRaw { localCard.noteTypeRaw = value }
+            if let value = remoteCard.createdAt { localCard.createdAt = value }
+            if let value = remoteCard.lapseCount { localCard.lapseCount = value }
+            if let value = remoteCard.learningStep { localCard.learningStep = value }
+            if let value = remoteCard.queueRaw { localCard.queueRaw = value }
+            if let value = remoteCard.fsrsReps { localCard.fsrsReps = value }
+            if let value = remoteCard.fsrsLapses { localCard.fsrsLapses = value }
+            if let value = remoteCard.extra { localCard.extra = value }
+            if let value = remoteCard.firstAid { localCard.firstAid = value }
+            if let value = remoteCard.sketchy { localCard.sketchy = value }
+            if let value = remoteCard.pathoma { localCard.pathoma = value }
+            if let value = remoteCard.clinicalPearls { localCard.clinicalPearls = value }
+            if remoteCard.version >= 2 {
+                localCard.lastReviewDate = remoteCard.lastReviewDate
+                localCard.buriedUntil = remoteCard.buriedUntil
+            }
             localCard.modifiedAt = remoteCard.modifiedAt
             
             recordConflictAudit(
@@ -286,39 +369,82 @@ final class CloudSyncManager: ObservableObject {
         }
     }
     
-    // MARK: - Sync Execution & Simulation
-    
-    /// Pulls private iCloud changes, then pushes local cards and review logs.
-    /// Status becomes `.synced` only after CloudKit accepts the write.
+    // MARK: - Durable deletion tracking
+
+    private func loadJournal() throws -> SyncJournal {
+        guard let data = defaults.data(forKey: journalKey) else { return SyncJournal() }
+        return try JSONDecoder().decode(SyncJournal.self, from: data)
+    }
+
+    private func saveJournal(_ journal: SyncJournal) throws {
+        defaults.set(try JSONEncoder().encode(journal), forKey: journalKey)
+    }
+
+    private func inventory(context: ModelContext) throws -> [String: String] {
+        var result: [String: String] = [:]
+        for deck in try context.fetch(FetchDescriptor<Deck>()) { result["deck-" + deck.id.uuidString] = deckRecordType }
+        for card in try context.fetch(FetchDescriptor<Card>()) { result[card.id.uuidString] = cardRecordType }
+        for log in try context.fetch(FetchDescriptor<ReviewLog>()) { result[log.id.uuidString] = reviewRecordType }
+        return result
+    }
+
+    /// Compare persisted inventory before pulling, so offline deletions cannot be resurrected.
+    func captureLocalDeletions(context: ModelContext) throws {
+        guard !context.hasChanges else { throw CloudSyncError.unsavedChanges }
+        let current = try inventory(context: context)
+        var journal = try loadJournal()
+        for (name, type) in journal.knownRecords where current[name] == nil {
+            journal.restoredRecords.remove(name)
+            journal.pendingDeletions[name] = type
+            journal.tombstones[name] = type
+        }
+        journal.knownRecords = current
+        try saveJournal(journal)
+    }
+
+    /// Explicit restore is allowed to revive backed-up IDs, unlike a stale device edit.
+    func markRestoredLibrary(context: ModelContext) throws {
+        let current = try inventory(context: context)
+        var journal = try loadJournal()
+        for name in current.keys {
+            journal.restoredRecords.insert(name)
+            journal.tombstones.removeValue(forKey: name)
+            journal.pendingDeletions.removeValue(forKey: name)
+        }
+        journal.knownRecords.merge(current) { _, new in new }
+        try saveJournal(journal)
+    }
+
+    // MARK: - Sync execution
+
     func triggerSync(context: ModelContext) async {
+        if case .syncing = syncStatus { return }
         guard isNetworkAvailable else {
-            self.syncStatus = .offline(reason: "No connection")
+            syncStatus = .offline(reason: "No connection")
             return
         }
-
-        let container = CKContainer(identifier: containerIdentifier)
-        let database = container.privateCloudDatabase
-        self.syncStatus = .syncing(progress: 0.08)
-
+        syncStatus = .syncing(progress: 0.08)
         do {
+            try context.save()
+            try captureLocalDeletions(context: context)
+            let container = CKContainer(identifier: containerIdentifier)
+            let database = container.privateCloudDatabase
             let account = try await container.accountStatus()
             guard account == .available else {
-                self.syncStatus = .offline(reason: accountStatusText(account))
+                syncStatus = .offline(reason: accountStatusText(account))
                 return
             }
-
-            _ = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
-            self.syncStatus = .syncing(progress: 0.3)
+            let zones = try await database.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
+            for result in zones.saveResults.values { _ = try result.get() }
+            syncStatus = .syncing(progress: 0.3)
             try await pullChanges(database: database, context: context)
-            self.syncStatus = .syncing(progress: 0.65)
+            syncStatus = .syncing(progress: 0.65)
             try await pushLocalChanges(database: database, context: context)
-
-            let now = Date()
-            self.lastSyncDate = now
-            UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "last_cloud_sync_timestamp")
-            self.syncStatus = .synced(lastSync: now)
+            lastSyncDate = Date()
+            defaults.set(lastSyncDate, forKey: "last_cloud_sync_timestamp")
+            syncStatus = .synced(lastSync: lastSyncDate ?? Date())
         } catch {
-            self.syncStatus = .error(message: error.localizedDescription)
+            syncStatus = .error(message: error.localizedDescription)
         }
     }
 
@@ -335,139 +461,414 @@ final class CloudSyncManager: ObservableObject {
 
     private func pullChanges(database: CKDatabase, context: ModelContext) async throws {
         var token = loadChangeToken()
+        var modifiedByID: [CKRecord.ID: CKRecord] = [:]
+        var deletedByID: [CKRecord.ID: String] = [:]
         var more = true
-        while more {
-            let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
-            for (_, result) in changes.modificationResultsByID {
-                if case .success(let modification) = result {
-                    applyRemoteRecord(modification.record, context: context)
+        do {
+            while more {
+                let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
+                for deletion in changes.deletions {
+                    modifiedByID.removeValue(forKey: deletion.recordID)
+                    deletedByID[deletion.recordID] = deletion.recordType
+                }
+                for result in changes.modificationResultsByID.values {
+                    let record = try result.get().record
+                    deletedByID.removeValue(forKey: record.recordID)
+                    modifiedByID[record.recordID] = record
+                }
+                token = changes.changeToken
+                more = changes.moreComing
+            }
+        } catch let error as CKError where error.code == .changeTokenExpired {
+            defaults.removeObject(forKey: "ck_recallrx_zone_token")
+            try await pullChanges(database: database, context: context)
+            return
+        }
+        // A device may already have skipped a recreated card while its deletion marker
+        // still existed. Marker removal must fetch the current record, even if its change
+        // was consumed in a previous pull, so an explicit restore reaches every device.
+        let restoredIDs = deletedByID.compactMap { id, type -> CKRecord.ID? in
+            guard type == deletionRecordType, id.recordName.hasPrefix("deleted-") else { return nil }
+            return CKRecord.ID(recordName: String(id.recordName.dropFirst("deleted-".count)), zoneID: zoneID)
+        }
+        for offset in stride(from: 0, to: restoredIDs.count, by: 100) {
+            let batch = Array(restoredIDs[offset..<min(offset + 100, restoredIDs.count)])
+            for (id, result) in try await database.records(for: batch) {
+                do {
+                    modifiedByID[id] = try result.get()
+                    deletedByID.removeValue(forKey: id)
+                } catch let error as CKError where error.code == .unknownItem { }
+            }
+        }
+        // A review may precede its parent in a different page. Order only after all pages arrive.
+        try applyRemoteChanges(records: Array(modifiedByID.values),
+                               deletions: deletedByID.map { ($0.key, $0.value) }, context: context)
+        if let token { try saveChangeToken(token) }
+    }
+
+    /// Atomic, testable application. No token or journal moves past a failed save/missing parent.
+    func applyRemoteChanges(records: [CKRecord], deletions: [(recordID: CKRecord.ID, recordType: String)] = [], context: ModelContext) throws {
+        guard !context.hasChanges else { throw CloudSyncError.unsavedChanges }
+        var journal = try loadJournal()
+        var index = try SyncRecordIndex(context: context)
+        let savedIndex = index
+        var savedDeckIDs: Set<UUID> = []
+        var savedCardIDs: Set<UUID> = []
+        var savedLogIDs: Set<UUID> = []
+        var restoreValues: [() -> Void] = []
+        var restoreRelationships: [() -> Void] = []
+
+        // Rollback refreshes persisted reads, but SwiftData can leave objects
+        // already held by a view with stale values. Retain only affected saved
+        // objects and their values, so recovery also repairs those references.
+        func rememberDeck(_ deck: Deck) {
+            guard savedDeckIDs.insert(deck.id).inserted else { return }
+            let snapshot = self.record(for: deck)
+            let cards = deck.cards
+            restoreValues.append { self.assignDeckValues(snapshot, to: deck) }
+            restoreRelationships.append { deck.cards = cards }
+        }
+        func rememberCard(_ card: Card) {
+            guard savedCardIDs.insert(card.id).inserted else { return }
+            let snapshot = self.record(for: card)
+            let deck = card.deck
+            let logs = card.reviewLogs
+            if let deck { rememberDeck(deck) }
+            restoreValues.append { self.assignCardValues(snapshot, to: card, deck: deck) }
+            restoreRelationships.append {
+                card.reviewLogs = logs
+                for log in logs { log.card = card }
+            }
+        }
+        func rememberLog(_ log: ReviewLog) {
+            guard savedLogIDs.insert(log.id).inserted else { return }
+            let card = log.card
+            if let card { rememberCard(card) }
+            restoreRelationships.append { log.card = card }
+        }
+        let restoredRemoteNames = Set(deletions.filter { $0.recordType == deletionRecordType && $0.recordID.recordName.hasPrefix("deleted-") }
+            .map { String($0.recordID.recordName.dropFirst("deleted-".count)) })
+        let liveRemoteNames = Set(records.filter { $0.recordType != deletionRecordType }.map { $0.recordID.recordName })
+        do {
+            for deletion in deletions where deletion.recordType == deletionRecordType {
+                let name = String(deletion.recordID.recordName.dropFirst("deleted-".count))
+                journal.tombstones.removeValue(forKey: name)
+                journal.pendingDeletions.removeValue(forKey: name)
+            }
+            for record in records where record.recordType == deletionRecordType {
+                guard let name = record["recordName"] as? String, let type = record["entityType"] as? String else {
+                    throw CloudSyncError.invalidRecord(record.recordID.recordName)
+                }
+                if !journal.restoredRecords.contains(name) { journal.tombstones[name] = type }
+            }
+            for deletion in deletions where deletion.recordType != deletionRecordType {
+                let name = deletion.recordID.recordName
+                if !journal.restoredRecords.contains(name) && !(restoredRemoteNames.contains(name) && liveRemoteNames.contains(name)) {
+                    journal.tombstones[name] = deletion.recordType
                 }
             }
-            token = changes.changeToken
-            more = changes.moreComing
+            for record in records where record.recordType == cardRecordType {
+                if let deckID = record["deckID"] as? String, journal.tombstones["deck-" + deckID] != nil {
+                    journal.tombstones[record.recordID.recordName] = cardRecordType
+                }
+            }
+            // Cascade tombstones as well as models. Otherwise a late review for a
+            // cascaded-away card would look like an unresolved parent and block the pull.
+            for (name, type) in Array(journal.tombstones) where type == deckRecordType {
+                guard let deckID = UUID(uuidString: String(name.dropFirst("deck-".count))) else { continue }
+                for cardID in index.cardIDsByDeck[deckID] ?? [] where journal.tombstones[cardID.uuidString] == nil {
+                    journal.tombstones[cardID.uuidString] = cardRecordType
+                    journal.pendingDeletions[cardID.uuidString] = cardRecordType
+                }
+            }
+            for (name, type) in Array(journal.tombstones) where type == cardRecordType {
+                guard let cardID = UUID(uuidString: name) else { continue }
+                for logID in index.logIDsByCard[cardID] ?? [] where journal.tombstones[logID.uuidString] == nil {
+                    journal.tombstones[logID.uuidString] = reviewRecordType
+                    journal.pendingDeletions[logID.uuidString] = reviewRecordType
+                }
+            }
+            // Capture the graph before any cascade or incoming relationship
+            // update can change it. New remote objects have no saved state.
+            for (name, type) in journal.tombstones {
+                if type == deckRecordType,
+                   let id = UUID(uuidString: String(name.dropFirst("deck-".count))),
+                   let deck = savedIndex.decks[id] {
+                    rememberDeck(deck)
+                    for cardID in savedIndex.cardIDsByDeck[id] ?? [] {
+                        if let card = savedIndex.cards[cardID] { rememberCard(card) }
+                    }
+                } else if let id = UUID(uuidString: name) {
+                    if type == cardRecordType, let card = savedIndex.cards[id] { rememberCard(card) }
+                    if type == reviewRecordType, let log = savedIndex.logs[id] { rememberLog(log) }
+                }
+            }
+            for record in records {
+                if record.recordType == deckRecordType,
+                   let id = UUID(uuidString: String(record.recordID.recordName.dropFirst("deck-".count))),
+                   let deck = savedIndex.decks[id] {
+                    rememberDeck(deck)
+                } else if record.recordType == cardRecordType {
+                    if let id = UUID(uuidString: record.recordID.recordName), let card = savedIndex.cards[id] {
+                        rememberCard(card)
+                    }
+                    if let name = record["deckID"] as? String, let id = UUID(uuidString: name),
+                       let deck = savedIndex.decks[id] { rememberDeck(deck) }
+                } else if record.recordType == reviewRecordType,
+                          let name = record["cardID"] as? String, let id = UUID(uuidString: name),
+                          let card = savedIndex.cards[id] {
+                    rememberCard(card)
+                }
+            }
+            for (name, type) in journal.tombstones {
+                try deleteLocalRecord(name: name, type: type, context: context, index: &index)
+                journal.knownRecords.removeValue(forKey: name)
+            }
+            for type in [deckRecordType, cardRecordType, reviewRecordType] {
+                for record in records where record.recordType == type {
+                    let name = record.recordID.recordName
+                    guard journal.tombstones[name] == nil, !journal.restoredRecords.contains(name) else { continue }
+                    if type == deckRecordType { try applyRemoteDeck(record, context: context, index: &index) }
+                    else if type == cardRecordType { try applyRemoteCard(record, context: context, index: &index) }
+                    else { try applyRemoteReview(record, tombstones: journal.tombstones, context: context, index: &index) }
+                }
+            }
+            try persistChanges(context)
+        } catch {
+            context.rollback()
+            for restore in restoreValues { restore() }
+            for restore in restoreRelationships { restore() }
+            // Restored values equal the saved store. Clear any change tracking
+            // caused by repairing an observed model; never save a failed pull.
+            if context.hasChanges { context.rollback() }
+            throw error
         }
-        if let token {
-            saveChangeToken(token)
+        journal.knownRecords.merge(try inventory(context: context)) { _, new in new }
+        try saveJournal(journal)
+    }
+
+    private func deleteLocalRecord(name: String, type: String, context: ModelContext, index: inout SyncRecordIndex) throws {
+        if type == deckRecordType, let id = UUID(uuidString: String(name.dropFirst("deck-".count))), let deck = index.decks.removeValue(forKey: id) {
+            let childCardIDs = index.cardIDsByDeck.removeValue(forKey: id) ?? []
+            for cardID in childCardIDs {
+                index.cards.removeValue(forKey: cardID)
+                for logID in index.logIDsByCard.removeValue(forKey: cardID) ?? [] { index.logs.removeValue(forKey: logID) }
+            }
+            context.delete(deck)
+        } else if let id = UUID(uuidString: name) {
+            if type == cardRecordType, let card = index.cards.removeValue(forKey: id) {
+                for logID in index.logIDsByCard.removeValue(forKey: id) ?? [] { index.logs.removeValue(forKey: logID) }
+                if let deckID = card.deck?.id { index.cardIDsByDeck[deckID]?.remove(id) }
+                context.delete(card)
+            } else if type == reviewRecordType, let log = index.logs.removeValue(forKey: id) {
+                if let cardID = log.card?.id { index.logIDsByCard[cardID]?.remove(id) }
+                context.delete(log)
+            }
         }
-        try? context.save()
     }
 
     private func pushLocalChanges(database: CKDatabase, context: ModelContext) async throws {
-        let lastPush = UserDefaults.standard.object(forKey: "last_cloud_sync_timestamp") as? Double
-        let since = lastPush.map { Date(timeIntervalSince1970: $0) } ?? .distantPast
-
-        let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-        let logs = (try? context.fetch(FetchDescriptor<ReviewLog>())) ?? []
-        var records: [CKRecord] = []
-        records.reserveCapacity(cards.count + logs.count)
-
-        for card in cards where card.modifiedAt > since {
-            records.append(record(for: card))
-        }
-        for log in logs where log.reviewDate > since {
-            records.append(record(for: log))
-        }
-
-        let batchSize = 200
-        var index = 0
-        while index < records.count {
-            let end = min(index + batchSize, records.count)
-            let batch = Array(records[index..<end])
-            let outcome = try await database.modifyRecords(saving: batch, deleting: [], savePolicy: .changedKeys, atomically: false)
-            for (_, result) in outcome.saveResults {
-                if case .failure(let error) = result {
-                    throw error
-                }
+        var journal = try loadJournal()
+        // Persistent cloud tombstones prevent an old device from recreating deleted data.
+        let deletionBatch = journal.pendingDeletions.sorted { $0.key < $1.key }
+        for offset in stride(from: 0, to: deletionBatch.count, by: 100) {
+            let batch = Array(deletionBatch[offset..<min(offset + 100, deletionBatch.count)])
+            let tombstones = batch.map { entry -> CKRecord in
+                let record = CKRecord(recordType: deletionRecordType, recordID: CKRecord.ID(recordName: "deleted-" + entry.key, zoneID: zoneID))
+                record["recordName"] = entry.key as NSString
+                record["entityType"] = entry.value as NSString
+                return record
             }
-            index = end
+            let result = try await database.modifyRecords(saving: tombstones,
+                deleting: batch.map { CKRecord.ID(recordName: $0.key, zoneID: zoneID) },
+                savePolicy: .changedKeys, atomically: false)
+            for value in result.saveResults.values { _ = try value.get() }
+            for value in result.deleteResults.values {
+                do { _ = try value.get() }
+                catch let error as CKError where error.code == .unknownItem { }
+            }
+            journal = try loadJournal()
+            for entry in batch { journal.pendingDeletions.removeValue(forKey: entry.key) }
+            try saveJournal(journal)
         }
+
+        let decks = try context.fetch(FetchDescriptor<Deck>())
+        let cards = try context.fetch(FetchDescriptor<Card>())
+        let logs = try context.fetch(FetchDescriptor<ReviewLog>())
+        for deck in decks where journal.restoredRecords.contains("deck-" + deck.id.uuidString) { deck.modifiedAt = .now }
+        for card in cards where journal.restoredRecords.contains(card.id.uuidString) { card.modifiedAt = .now }
+        try context.save()
+        let localRecords = decks.map { record(for: $0) } + cards.map { record(for: $0) } + logs.map { record(for: $0) }
+        for offset in stride(from: 0, to: localRecords.count, by: 100) {
+            let batch = Array(localRecords[offset..<min(offset + 100, localRecords.count)])
+                .filter { journal.tombstones[$0.recordID.recordName] == nil }
+            let remote = try await database.records(for: batch.map(\.recordID))
+            var toSave: [CKRecord] = []
+            var newerRemote: [CKRecord] = []
+            for local in batch {
+                var existing: CKRecord?
+                if let result = remote[local.recordID] {
+                    do { existing = try result.get() }
+                    catch let error as CKError where error.code == .unknownItem { }
+                }
+                if let existing {
+                    if local.recordType == reviewRecordType && (existing["version"] as? Int ?? 1) >= 2 { continue }
+                    let remoteDate = existing["modifiedAt"] as? Date ?? .distantPast
+                    let localDate = local["modifiedAt"] as? Date ?? .distantPast
+                    if remoteDate > localDate { newerRemote.append(existing); continue }
+                    if remoteDate == localDate && local.recordType != reviewRecordType && !journal.restoredRecords.contains(local.recordID.recordName) { continue }
+                    for key in existing.allKeys() where local[key] == nil { existing[key] = nil }
+                    for key in local.allKeys() { existing[key] = local[key] }
+                    toSave.append(existing)
+                } else { toSave.append(local) }
+            }
+            if !newerRemote.isEmpty { try applyRemoteChanges(records: newerRemote, context: context) }
+            if !toSave.isEmpty {
+                let outcome = try await database.modifyRecords(saving: toSave, deleting: [], savePolicy: .ifServerRecordUnchanged, atomically: false)
+                for result in outcome.saveResults.values { _ = try result.get() }
+            }
+        }
+        let restoredBatch = journal.restoredRecords
+        for name in restoredBatch {
+            let result = try await database.modifyRecords(saving: [], deleting: [CKRecord.ID(recordName: "deleted-" + name, zoneID: zoneID)], atomically: false)
+            for value in result.deleteResults.values {
+                do { _ = try value.get() }
+                catch let error as CKError where error.code == .unknownItem { }
+            }
+        }
+        try captureLocalDeletions(context: context)
+        journal = try loadJournal()
+        journal.restoredRecords.subtract(restoredBatch)
+        journal.knownRecords = try inventory(context: context)
+        try saveJournal(journal)
     }
 
-    private func applyRemoteRecord(_ record: CKRecord, context: ModelContext) {
-        if record.recordType == cardRecordType {
-            applyRemoteCard(record, context: context)
-        } else if record.recordType == reviewRecordType {
-            applyRemoteReview(record, context: context)
-        }
+    private func applyRemoteDeck(_ record: CKRecord, context: ModelContext, index: inout SyncRecordIndex) throws {
+        guard let id = UUID(uuidString: String(record.recordID.recordName.dropFirst("deck-".count))),
+              let name = record["name"] as? String else { throw CloudSyncError.invalidRecord(record.recordID.recordName) }
+        let modifiedAt = record["modifiedAt"] as? Date ?? .distantPast
+        let existing = index.decks[id]
+        if let existing, existing.modifiedAt >= modifiedAt { return }
+        let deck = existing ?? Deck(id: id, name: name)
+        if existing == nil { context.insert(deck); index.decks[id] = deck }
+        assignDeckValues(record, to: deck)
     }
 
-    private func applyRemoteCard(_ record: CKRecord, context: ModelContext) {
-        guard let id = UUID(uuidString: record.recordID.recordName) else { return }
-        let payload = RemoteCardPayload(
-            id: id,
-            front: record["front"] as? String ?? "",
-            back: record["back"] as? String ?? "",
-            modifiedAt: record["modifiedAt"] as? Date ?? .distantPast,
-            interval: record["interval"] as? Double ?? 0,
-            easeFactor: record["easeFactor"] as? Double ?? 2.5,
-            repetitions: record["repetitions"] as? Int ?? 0,
-            dueDate: record["dueDate"] as? Date ?? Date(),
-            stateRaw: record["stateRaw"] as? String ?? CardState.new.rawValue,
-            fsrsStability: record["fsrsStability"] as? Double ?? 0,
-            fsrsDifficulty: record["fsrsDifficulty"] as? Double ?? 0,
-            isSuspended: record["isSuspended"] as? Bool ?? false,
-            isBuried: record["isBuried"] as? Bool ?? false,
-            tags: record["tags"] as? [String] ?? [],
-            deckID: (record["deckID"] as? String).flatMap(UUID.init(uuidString:))
-        )
+    private func assignDeckValues(_ record: CKRecord, to deck: Deck) {
+        let modifiedAt = record["modifiedAt"] as? Date ?? .distantPast
+        deck.name = record["name"] as? String ?? ""
+        deck.descriptionText = record["descriptionText"] as? String ?? ""
+        deck.createdAt = record["createdAt"] as? Date ?? modifiedAt
+        deck.parentDeckID = (record["parentDeckID"] as? String).flatMap(UUID.init(uuidString:))
+        deck.newCardsPerDay = record["newCardsPerDay"] as? Int ?? 20
+        deck.reviewsPerDay = record["reviewsPerDay"] as? Int ?? 200
+        deck.isCollapsed = record["isCollapsed"] as? Bool ?? false
+        deck.modifiedAt = modifiedAt
+    }
 
-        let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-        if let local = cards.first(where: { $0.id == id }) {
-            _ = resolveCardConflict(localCard: local, remoteCard: payload)
-            return
+    private func applyRemoteCard(_ record: CKRecord, context: ModelContext, index: inout SyncRecordIndex) throws {
+        guard let id = UUID(uuidString: record.recordID.recordName), let front = record["front"] as? String else {
+            throw CloudSyncError.invalidRecord(record.recordID.recordName)
         }
-
-        let decks = (try? context.fetch(FetchDescriptor<Deck>())) ?? []
-        let deck = decks.first(where: { $0.id == payload.deckID }) ?? decks.first(where: { $0.name == "iCloud" }) ?? {
-            let created = Deck(name: "iCloud", descriptionText: "Cards merged from iCloud")
+        var card = index.cards[id]
+        let modifiedAt = record["modifiedAt"] as? Date ?? .distantPast
+        if let card, card.modifiedAt >= modifiedAt { return }
+        let deckID = (record["deckID"] as? String).flatMap(UUID.init(uuidString:))
+        var deck = deckID.flatMap { index.decks[$0] }
+        // Legacy cloud records did not include Deck records. V2 preserves explicitly orphaned cards.
+        if deck == nil && (deckID != nil || (record["version"] as? Int ?? 1) < 2) {
+            let created = Deck(id: deckID ?? UUID(), name: "iCloud", descriptionText: "Cards merged from iCloud")
             context.insert(created)
-            return created
-        }()
-        let card = Card(
-            id: id,
-            front: payload.front,
-            back: payload.back,
-            deck: deck,
-            tags: payload.tags,
-            modifiedAt: payload.modifiedAt,
-            isSuspended: payload.isSuspended,
-            isBuried: payload.isBuried,
-            interval: payload.interval,
-            easeFactor: payload.easeFactor,
-            repetitions: payload.repetitions,
-            dueDate: payload.dueDate,
-            stateRaw: payload.stateRaw,
-            fsrsStability: payload.fsrsStability,
-            fsrsDifficulty: payload.fsrsDifficulty
-        )
-        context.insert(card)
-        deck.cards.append(card)
+            index.decks[created.id] = created
+            deck = created
+        }
+        if card == nil {
+            let created = Card(id: id, front: front, deck: deck)
+            context.insert(created)
+            index.cards[id] = created
+            card = created
+        }
+        guard let card else { throw CloudSyncError.invalidRecord(record.recordID.recordName) }
+        if let oldDeckID = card.deck?.id { index.cardIDsByDeck[oldDeckID]?.remove(card.id) }
+        if let deck { index.cardIDsByDeck[deck.id, default: []].insert(card.id) }
+        assignCardValues(record, to: card, deck: deck)
     }
 
-    private func applyRemoteReview(_ record: CKRecord, context: ModelContext) {
-        guard
-            let id = UUID(uuidString: record.recordID.recordName),
-            let cardIDString = record["cardID"] as? String,
-            let cardID = UUID(uuidString: cardIDString)
-        else { return }
-
-        let payload = RemoteReviewLogPayload(
-            id: id,
-            cardID: cardID,
-            rating: record["rating"] as? Int ?? 0,
-            reviewDate: record["reviewDate"] as? Date ?? Date(),
-            timeTakenMs: record["timeTakenMs"] as? Int ?? 0,
-            intervalBefore: record["intervalBefore"] as? Double ?? 0,
-            intervalAfter: record["intervalAfter"] as? Double ?? 0
-        )
-        let cards = (try? context.fetch(FetchDescriptor<Card>())) ?? []
-        guard let card = cards.first(where: { $0.id == cardID }) else { return }
-        _ = mergeReviewLogs(remoteLogs: [payload], cardsByID: [cardID: card], context: context)
+    private func assignCardValues(_ record: CKRecord, to card: Card, deck: Deck?) {
+        let modifiedAt = record["modifiedAt"] as? Date ?? .distantPast
+        card.front = record["front"] as? String ?? ""
+        card.back = record["back"] as? String ?? ""
+        card.deck = deck
+        card.tags = record["tags"] as? [String] ?? []
+        card.interval = record["interval"] as? Double ?? 0
+        card.easeFactor = record["easeFactor"] as? Double ?? 2.5
+        card.repetitions = record["repetitions"] as? Int ?? 0
+        card.dueDate = record["dueDate"] as? Date ?? .now
+        card.stateRaw = record["stateRaw"] as? String ?? "new"
+        card.fsrsStability = record["fsrsStability"] as? Double ?? 0
+        card.fsrsDifficulty = record["fsrsDifficulty"] as? Double ?? 0
+        card.isSuspended = record["isSuspended"] as? Bool ?? false
+        card.isBuried = record["isBuried"] as? Bool ?? false
+        if (record["version"] as? Int ?? 1) >= 2 {
+            card.noteTypeRaw = record["noteTypeRaw"] as? String ?? "basic"
+            card.createdAt = record["createdAt"] as? Date ?? modifiedAt
+            card.lastReviewDate = record["lastReviewDate"] as? Date
+            card.buriedUntil = record["buriedUntil"] as? Date
+            card.lapseCount = record["lapseCount"] as? Int ?? 0
+            card.learningStep = record["learningStep"] as? Int ?? 0
+            card.queueRaw = record["queueRaw"] as? String ?? "new"
+            card.fsrsReps = record["fsrsReps"] as? Int ?? 0
+            card.fsrsLapses = record["fsrsLapses"] as? Int ?? 0
+            card.extra = record["extra"] as? String ?? ""
+            card.firstAid = record["firstAid"] as? String ?? ""
+            card.sketchy = record["sketchy"] as? String ?? ""
+            card.pathoma = record["pathoma"] as? String ?? ""
+            card.clinicalPearls = record["clinicalPearls"] as? String ?? ""
+        }
+        card.modifiedAt = modifiedAt
     }
 
-    private func record(for card: Card) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: card.id.uuidString, zoneID: zoneID)
-        let record = CKRecord(recordType: cardRecordType, recordID: recordID)
+    private func applyRemoteReview(_ record: CKRecord, tombstones: [String: String], context: ModelContext, index: inout SyncRecordIndex) throws {
+        guard let id = UUID(uuidString: record.recordID.recordName) else { throw CloudSyncError.invalidRecord(record.recordID.recordName) }
+        guard index.logs[id] == nil else { return }
+        let cardIDText = record["cardID"] as? String
+        var card: Card?
+        if let cardIDText, !cardIDText.isEmpty {
+            if tombstones[cardIDText] != nil { return }
+            guard let cardID = UUID(uuidString: cardIDText) else { throw CloudSyncError.invalidRecord(record.recordID.recordName) }
+            guard let parent = index.cards[cardID] else { throw CloudSyncError.missingCard(cardIDText) }
+            card = parent
+        }
+        let log = ReviewLog(id: id, card: card, rating: record["rating"] as? Int ?? 0,
+                            reviewDate: record["reviewDate"] as? Date ?? .now,
+                            timeTakenMs: record["timeTakenMs"] as? Int ?? 0,
+                            intervalBefore: record["intervalBefore"] as? Double ?? 0,
+                            intervalAfter: record["intervalAfter"] as? Double ?? 0,
+                            easeFactorBefore: record["easeFactorBefore"] as? Double ?? 2.5,
+                            easeFactorAfter: record["easeFactorAfter"] as? Double ?? 2.5,
+                            cardStateBefore: record["cardStateBefore"] as? String ?? "new",
+                            cardStateAfter: record["cardStateAfter"] as? String ?? "learning")
+        context.insert(log)
+        index.logs[id] = log
+        if let card { index.logIDsByCard[card.id, default: []].insert(id) }
+    }
+
+    func record(for deck: Deck) -> CKRecord {
+        let record = CKRecord(recordType: deckRecordType, recordID: CKRecord.ID(recordName: "deck-" + deck.id.uuidString, zoneID: zoneID))
+        record["name"] = deck.name as NSString
+        record["descriptionText"] = deck.descriptionText as NSString
+        record["createdAt"] = deck.createdAt as NSDate
+        record["modifiedAt"] = deck.modifiedAt as NSDate
+        record["isCollapsed"] = deck.isCollapsed as NSNumber
+        record["newCardsPerDay"] = deck.newCardsPerDay as NSNumber
+        record["reviewsPerDay"] = deck.reviewsPerDay as NSNumber
+        record["parentDeckID"] = deck.parentDeckID?.uuidString as NSString?
+        return record
+    }
+
+    func record(for card: Card) -> CKRecord {
+        let record = CKRecord(recordType: cardRecordType, recordID: CKRecord.ID(recordName: card.id.uuidString, zoneID: zoneID))
+        record["version"] = 2 as NSNumber
         record["front"] = card.front as NSString
         record["back"] = card.back as NSString
         record["modifiedAt"] = card.modifiedAt as NSDate
@@ -481,35 +882,49 @@ final class CloudSyncManager: ObservableObject {
         record["isSuspended"] = card.isSuspended as NSNumber
         record["isBuried"] = card.isBuried as NSNumber
         record["tags"] = card.tags as NSArray
-        if let deckID = card.deck?.id.uuidString {
-            record["deckID"] = deckID as NSString
-        }
+        record["deckID"] = card.deck?.id.uuidString as NSString?
+        record["noteTypeRaw"] = card.noteTypeRaw as NSString
+        record["createdAt"] = card.createdAt as NSDate
+        record["lastReviewDate"] = card.lastReviewDate as NSDate?
+        record["buriedUntil"] = card.buriedUntil as NSDate?
+        record["lapseCount"] = card.lapseCount as NSNumber
+        record["learningStep"] = card.learningStep as NSNumber
+        record["queueRaw"] = card.queueRaw as NSString
+        record["fsrsReps"] = card.fsrsReps as NSNumber
+        record["fsrsLapses"] = card.fsrsLapses as NSNumber
+        record["extra"] = card.extra as NSString
+        record["firstAid"] = card.firstAid as NSString
+        record["sketchy"] = card.sketchy as NSString
+        record["pathoma"] = card.pathoma as NSString
+        record["clinicalPearls"] = card.clinicalPearls as NSString
         return record
     }
 
-    private func record(for log: ReviewLog) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: log.id.uuidString, zoneID: zoneID)
-        let record = CKRecord(recordType: reviewRecordType, recordID: recordID)
-        record["cardID"] = (log.card?.id.uuidString ?? "") as NSString
+    func record(for log: ReviewLog) -> CKRecord {
+        let record = CKRecord(recordType: reviewRecordType, recordID: CKRecord.ID(recordName: log.id.uuidString, zoneID: zoneID))
+        record["version"] = 2 as NSNumber
+        record["cardID"] = log.card?.id.uuidString as NSString?
         record["rating"] = log.rating as NSNumber
         record["reviewDate"] = log.reviewDate as NSDate
         record["timeTakenMs"] = log.timeTakenMs as NSNumber
         record["intervalBefore"] = log.intervalBefore as NSNumber
         record["intervalAfter"] = log.intervalAfter as NSNumber
+        record["easeFactorBefore"] = log.easeFactorBefore as NSNumber
+        record["easeFactorAfter"] = log.easeFactorAfter as NSNumber
+        record["cardStateBefore"] = log.cardStateBefore as NSString
+        record["cardStateAfter"] = log.cardStateAfter as NSString
         return record
     }
 
     private func loadChangeToken() -> CKServerChangeToken? {
-        guard let data = UserDefaults.standard.data(forKey: "ck_recallrx_zone_token") else { return nil }
+        guard let data = defaults.data(forKey: "ck_recallrx_zone_token") else { return nil }
         return try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
     }
 
-    private func saveChangeToken(_ token: CKServerChangeToken) {
-        if let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
-            UserDefaults.standard.set(data, forKey: "ck_recallrx_zone_token")
-        }
+    private func saveChangeToken(_ token: CKServerChangeToken) throws {
+        defaults.set(try NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true), forKey: "ck_recallrx_zone_token")
     }
-    
+
     /// Simulates multi-device sync conflict resolution between Device A and Device B
     func simulateMultiDeviceSync(
         localCard: Card,
@@ -574,12 +989,12 @@ final class CloudSyncManager: ObservableObject {
     
     private func saveAuditLog() {
         if let encoded = try? JSONEncoder().encode(conflictAuditLog) {
-            UserDefaults.standard.set(encoded, forKey: "cloud_sync_conflict_audit_log")
+            defaults.set(encoded, forKey: "cloud_sync_conflict_audit_log")
         }
     }
     
     private func loadAuditLog() {
-        if let data = UserDefaults.standard.data(forKey: "cloud_sync_conflict_audit_log"),
+        if let data = defaults.data(forKey: "cloud_sync_conflict_audit_log"),
            let decoded = try? JSONDecoder().decode([SyncConflictAuditEntry].self, from: data) {
             self.conflictAuditLog = decoded
         }

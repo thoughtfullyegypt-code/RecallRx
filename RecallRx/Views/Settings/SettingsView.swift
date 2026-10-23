@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("autoAdvance") private var autoAdvance: Bool = false
     @AppStorage("defaultNewCardsPerDay") private var defaultNewCardsPerDay: Int = 20
     @AppStorage("defaultMaxReviewsPerDay") private var defaultMaxReviewsPerDay: Int = 200
+    @AppStorage("userTargetExam") private var targetExam = "USMLE Step 1"
 
     // Review Settings
     @AppStorage("useFSRS") private var useFSRS: Bool = true
@@ -109,6 +110,14 @@ struct SettingsView: View {
 
                     // Section 2: Study
                     Section("Study") {
+                        Picker("Exam goal", selection: $targetExam) {
+                            Text("USMLE Step 1").tag("USMLE Step 1")
+                            Text("USMLE Step 1 (Pass/Fail)").tag("USMLE Step 1 (Pass/Fail)")
+                            Text("USMLE Step 2 CK").tag("USMLE Step 2 CK (Scored)")
+                            Text("COMLEX Level 1 / 2").tag("COMLEX Level 1 / 2")
+                            Text("Clinical Shelf Exams").tag("Clinical Shelf Exams")
+                            Text("MCAT / Pre-Med").tag("MCAT / Pre-Med")
+                        }
                         Toggle("Show Study Timer", isOn: $showTimer)
                         Toggle("Auto-advance to Next Card", isOn: $autoAdvance)
 
@@ -371,8 +380,14 @@ struct SettingsView: View {
                                 NotificationManager.shared.dailyRemindersEnabled = enabled
                                 if enabled {
                                     Task {
-                                        _ = await NotificationManager.shared.requestAuthorization()
-                                        NotificationManager.shared.scheduleDailyReminder(dueCount: 42, streakDays: 7)
+                                        let granted = await notificationManager.requestAuthorization()
+                                        if granted {
+                                            await LifecycleCoordinator.shared.refresh(context: modelContext)
+                                        } else {
+                                            notificationManager.dailyRemindersEnabled = false
+                                            statusMessage = "Study reminders need notification permission. You can enable it in iOS Settings."
+                                            showStatusAlert = true
+                                        }
                                     }
                                 } else {
                                     NotificationManager.shared.cancelDailyReminder()

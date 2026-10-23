@@ -15,6 +15,55 @@ final class MediaManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     // Directory where media files are stored: Library/Application Support/RecallRx/Media/
     private let mediaDirectoryURL: URL
+
+    /// Read-only access for portable backups and transactional imports.
+    var directoryURL: URL { mediaDirectoryURL }
+
+    enum MediaError: LocalizedError {
+        case invalidFilename
+        case symbolicLink
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidFilename: return "Media filenames must be safe relative paths."
+            case .symbolicLink: return "Symbolic links cannot be used for card media."
+            }
+        }
+    }
+
+    /// An isolated directory can be supplied by tests without touching a user's media.
+    init(mediaDirectoryURL: URL) {
+        self.mediaDirectoryURL = mediaDirectoryURL
+        super.init()
+        try? FileManager.default.createDirectory(at: mediaDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    static func validatedRelativePath(_ filename: String) throws -> String {
+        guard !filename.isEmpty, !filename.hasPrefix("/"), !filename.contains("\\"), !filename.contains("\0") else {
+            throw MediaError.invalidFilename
+        }
+        let components = filename.split(separator: "/", omittingEmptySubsequences: false)
+        guard components.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw MediaError.invalidFilename
+        }
+        return filename
+    }
+
+    static func mediaURL(for filename: String, in directory: URL) throws -> URL {
+        let path = try validatedRelativePath(filename)
+        let base = directory.standardizedFileURL.resolvingSymlinksInPath()
+        var current = base
+        for component in path.split(separator: "/") {
+            current.appendPathComponent(String(component))
+            if let values = try? current.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink == true {
+                throw MediaError.symbolicLink
+            }
+        }
+        guard current.standardizedFileURL.path.hasPrefix(base.path + "/") else {
+            throw MediaError.invalidFilename
+        }
+        return current
+    }
     
     private override init() {
         let fileManager = FileManager.default
@@ -32,25 +81,15 @@ final class MediaManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     /// Returns the file URL for a given media name if it exists on disk
     func getMediaURL(for filename: String) -> URL? {
-        let cleanName = filename.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanName.isEmpty else { return nil }
-        
-        let fileURL = mediaDirectoryURL.appendingPathComponent(cleanName)
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            return fileURL
+        let candidates = [filename, filename.removingPercentEncoding].compactMap { $0 }
+        for candidate in candidates {
+            guard let url = try? Self.mediaURL(for: candidate, in: mediaDirectoryURL),
+                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            return url
         }
-        
-        // Check URL-encoded or decoded variants
-        if let decoded = cleanName.removingPercentEncoding {
-            let altURL = mediaDirectoryURL.appendingPathComponent(decoded)
-            if FileManager.default.fileExists(atPath: altURL.path) {
-                return altURL
-            }
-        }
-        
         return nil
     }
-    
+
     /// Checks if a media asset exists in local storage
     func mediaExists(for filename: String) -> Bool {
         return getMediaURL(for: filename) != nil
@@ -58,25 +97,17 @@ final class MediaManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     /// Saves media data under a specific filename
     func saveMedia(data: Data, named filename: String) throws {
-        let cleanName = filename.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanName.isEmpty else { return }
-        
-        let destinationURL = mediaDirectoryURL.appendingPathComponent(cleanName)
-        try data.write(to: destinationURL, options: .atomic)
+        let destination = try Self.mediaURL(for: filename, in: mediaDirectoryURL)
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: destination, options: .atomic)
     }
-    
-    /// Copies a file into the media directory
+
+    /// Read first, then replace atomically, so a failed copy cannot delete an existing image.
     func copyMediaFile(from sourceURL: URL, named destinationName: String) throws {
-        let cleanName = destinationName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanName.isEmpty else { return }
-        
-        let destinationURL = mediaDirectoryURL.appendingPathComponent(cleanName)
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try? FileManager.default.removeItem(at: destinationURL)
-        }
-        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        let data = try Data(contentsOf: sourceURL)
+        try saveMedia(data: data, named: destinationName)
     }
-    
+
     /// Returns total media storage size in bytes
     func totalMediaSize() -> Int64 {
         guard let files = try? FileManager.default.contentsOfDirectory(at: mediaDirectoryURL, includingPropertiesForKeys: [.fileSizeKey]) else {

@@ -248,66 +248,54 @@ class ImportExportManager {
         return try encoder.encode(exportData)
     }
     
-    /// Export all decks
-    static func exportAllDecks(context: ModelContext) throws -> Data {
-        let descriptor = FetchDescriptor<Deck>(sortBy: [SortDescriptor(\.name)])
-        let decks = try context.fetch(descriptor)
-        
-        let deckExports: [DeckExportData] = decks.map { deck in
-            let cardExports: [CardExportData] = deck.cards.map { card in
-                let logs = card.reviewLogs.map { log in
-                    ReviewLogExportData(
-                        rating: log.rating,
-                        reviewDate: log.reviewDate,
-                        timeTakenMs: log.timeTakenMs,
-                        intervalBefore: log.intervalBefore,
-                        intervalAfter: log.intervalAfter,
-                        easeFactorBefore: log.easeFactorBefore,
-                        easeFactorAfter: log.easeFactorAfter,
-                        cardStateBefore: log.cardStateBefore,
-                        cardStateAfter: log.cardStateAfter
-                    )
-                }
-                return CardExportData(
-                    front: card.front,
-                    back: card.back,
-                    tags: card.tags,
-                    noteType: card.noteTypeRaw,
-                    interval: card.interval,
-                    easeFactor: card.easeFactor,
-                    repetitions: card.repetitions,
-                    dueDate: card.dueDate,
-                    state: card.stateRaw,
-                    extra: card.extra,
-                    firstAid: card.firstAid,
-                    sketchy: card.sketchy,
-                    pathoma: card.pathoma,
-                    clinicalPearls: card.clinicalPearls,
-                    lapseCount: card.lapseCount,
-                    fsrsStability: card.fsrsStability,
-                    fsrsDifficulty: card.fsrsDifficulty,
-                    fsrsReps: card.fsrsReps,
-                    fsrsLapses: card.fsrsLapses,
-                    reviewLogs: logs
-                )
-            }
-            return DeckExportData(
-                deckName: deck.name,
-                deckDescription: deck.deckDescription,
-                cards: cardExports,
-                exportDate: Date(),
-                version: 1
+    /// Export a complete versioned library archive, including media and scheduling state.
+    static func exportAllDecks(context: ModelContext, mediaDirectoryURL: URL? = nil) throws -> Data {
+        try BackupArchive.capture(
+            context: context,
+            mediaDirectoryURL: mediaDirectoryURL ?? MediaManager.shared.directoryURL
+        ).encoded()
+    }
+
+    /// Import complete archives and legacy single-deck / multi-deck JSON without partial saves.
+    static func importAllDecks(
+        from data: Data,
+        context: ModelContext,
+        mediaDirectoryURL: URL? = nil
+    ) throws -> [Deck] {
+        let archive = try BackupArchive.decode(data)
+        let media = try archive.media.map {
+            try BackupMediaStaging(
+                records: $0,
+                liveDirectory: mediaDirectoryURL ?? MediaManager.shared.directoryURL,
+                preserveExisting: true
             )
         }
-        
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(deckExports)
+        try context.save()
+        let autosaveEnabled = context.autosaveEnabled
+        context.autosaveEnabled = false
+        defer { context.autosaveEnabled = autosaveEnabled }
+        do {
+            let decks = try BackupStoreWriter.insert(archive, context: context)
+            try media?.install()
+            try context.save()
+            media?.finish()
+            return decks
+        } catch {
+            context.rollback()
+            do {
+                try media?.rollback()
+            } catch let recoveryError {
+                throw BackupArchiveError.mediaRollbackFailed(
+                    original: error, recovery: recoveryError,
+                    recoveryDirectory: media?.recoveryDirectory
+                )
+            }
+            throw error
+        }
     }
-    
-    /// Import all decks from JSON data (supporting both single DeckExportData and [DeckExportData])
-    static func importAllDecks(from data: Data, context: ModelContext) throws -> [Deck] {
+
+    /// Pure legacy decoding is shared with backup validation before any live mutation.
+    static func decodeLegacyDecks(from data: Data) throws -> [DeckExportData] {
         guard !data.isEmpty else {
             throw ImportError.emptyFile
         }
@@ -343,9 +331,15 @@ class ImportExportManager {
             throw ImportError.decodingFailed("Could not decode snapshot decks format.")
         }
         
+        return deckDataList
+    }
+
+    /// Build legacy records in the caller's unsaved context. The caller owns the transaction.
+    @discardableResult
+    static func insertLegacyDecks(_ deckDataList: [DeckExportData], context: ModelContext) throws -> [Deck] {
         var importedDecks: [Deck] = []
         var existingTagNames: Set<String> = []
-        let existingTags = (try? context.fetch(FetchDescriptor<Tag>())) ?? []
+        let existingTags = try context.fetch(FetchDescriptor<Tag>())
         for tag in existingTags {
             existingTagNames.insert(tag.name.lowercased())
         }
@@ -374,11 +368,14 @@ class ImportExportManager {
                     deck: deck,
                     tags: validTags,
                     noteTypeRaw: cardExport.noteType,
+                    createdAt: cardExport.reviewLogs.map(\.reviewDate).min() ?? deckData.exportDate,
+                    modifiedAt: cardExport.reviewLogs.map(\.reviewDate).max() ?? deckData.exportDate,
                     lapseCount: cardExport.lapseCount,
                     interval: cardExport.interval,
                     easeFactor: cardExport.easeFactor,
                     repetitions: cardExport.repetitions,
                     dueDate: cardExport.dueDate,
+                    lastReviewDate: cardExport.reviewLogs.map(\.reviewDate).max(),
                     stateRaw: cardExport.state,
                     extra: cardExport.extra,
                     firstAid: cardExport.firstAid,
@@ -415,7 +412,6 @@ class ImportExportManager {
             importedDecks.append(deck)
         }
         
-        try? context.save()
         return importedDecks
     }
     
@@ -467,15 +463,26 @@ class ImportExportManager {
             throw ImportError.invalidCSVFormat
         }
         
+        try context.save()
+        let autosaveEnabled = context.autosaveEnabled
+        context.autosaveEnabled = false
+        defer { context.autosaveEnabled = autosaveEnabled }
+
         let deck = Deck(name: deckName, deckDescription: "")
         context.insert(deck)
         
         var existingTagNames: Set<String> = []
-        let existingTags = (try? context.fetch(FetchDescriptor<Tag>())) ?? []
+        let existingTags: [Tag]
+        do {
+            existingTags = try context.fetch(FetchDescriptor<Tag>())
+        } catch {
+            context.rollback()
+            throw error
+        }
         for tag in existingTags {
             existingTagNames.insert(tag.name.lowercased())
         }
-        
+
         for row in dataRows {
             guard row.count >= 2 else { continue }
             let front = row[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -524,7 +531,12 @@ class ImportExportManager {
             deck.cards.append(card)
         }
         
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
         return deck
     }
     

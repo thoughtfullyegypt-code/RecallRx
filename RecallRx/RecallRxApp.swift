@@ -2,37 +2,57 @@ import SwiftUI
 import SwiftData
 
 @main
+@MainActor
 struct RecallRxApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema(versionedSchema: RecallRxSchemaV1.self)
-        // CloudSyncManager talks to the private CloudKit database itself.
-        // Leaving this on .automatic makes SwiftData mirror the store, and Core Data
-        // then crashes (134060) because Deck.cards and Card.reviewLogs are not optional.
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
+    let sharedModelContainer: ModelContainer
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("appTheme") private var appTheme = "system"
+
+    init() {
         do {
-            return try ModelContainer(for: schema, migrationPlan: RecallRxMigrationPlan.self, configurations: [modelConfiguration])
+            sharedModelContainer = try Self.makeModelContainer()
         } catch {
-            do {
-                let standardSchema = Schema([Deck.self, Card.self, ReviewLog.self, Tag.self])
-                let fallback = ModelConfiguration(schema: standardSchema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
-                return try ModelContainer(for: standardSchema, configurations: [fallback])
-            } catch {
-                fatalError("Could not create ModelContainer: \(error)")
-            }
+            fatalError("Could not create ModelContainer: \(error)")
         }
-    }()
-    
-    @AppStorage("appTheme") private var appTheme: String = "system"
-    
+    }
+
+    /// Hosted tests use a fresh memory-only container, including the fallback path.
+    static func makeModelContainer(isStoredInMemoryOnly: Bool = AppRuntime.isTesting) throws -> ModelContainer {
+        let schema = Schema(versionedSchema: RecallRxSchemaV1.self)
+        // Private CloudKit sync is managed explicitly. Automatic SwiftData mirroring
+        // cannot represent this schema's non-optional relationships.
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: isStoredInMemoryOnly, cloudKitDatabase: .none)
+        do {
+            return try ModelContainer(for: schema, migrationPlan: RecallRxMigrationPlan.self, configurations: [configuration])
+        } catch {
+            let fallbackSchema = Schema([Deck.self, Card.self, ReviewLog.self, Tag.self])
+            let fallback = ModelConfiguration(schema: fallbackSchema, isStoredInMemoryOnly: isStoredInMemoryOnly, cloudKitDatabase: .none)
+            return try ModelContainer(for: fallbackSchema, configurations: [fallback])
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .preferredColorScheme(colorScheme)
+            Group {
+                if AppRuntime.isTesting {
+                    // Unit tests host the app without running UI tasks, onboarding, or lifecycle work.
+                    Color.clear
+                } else {
+                    ContentView()
+                        .task { LifecycleCoordinator.shared.start(context: sharedModelContainer.mainContext) }
+                        .onChange(of: scenePhase) { _, phase in
+                            if phase == .active {
+                                LifecycleCoordinator.shared.requestRefresh(context: sharedModelContainer.mainContext)
+                            }
+                        }
+                }
+            }
+            .preferredColorScheme(colorScheme)
         }
         .modelContainer(sharedModelContainer)
     }
-    
-    var colorScheme: ColorScheme? {
+
+    private var colorScheme: ColorScheme? {
         switch appTheme {
         case "light": return .light
         case "dark": return .dark

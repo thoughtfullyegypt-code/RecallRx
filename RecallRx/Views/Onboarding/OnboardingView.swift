@@ -4,8 +4,8 @@ import SwiftUI
 struct OnboardingView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("userTargetExam") private var userTargetExam = "USMLE Step 1"
-    @AppStorage("userDailyNewLimit") private var userDailyNewLimit = 20
-    @AppStorage("userDailyReviewLimit") private var userDailyReviewLimit = 200
+    @AppStorage("defaultNewCardsPerDay") private var userDailyNewLimit = 20
+    @AppStorage("defaultMaxReviewsPerDay") private var userDailyReviewLimit = 200
     @AppStorage("fsrsTargetRetention") private var fsrsTargetRetention = 0.88
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,10 +53,10 @@ struct OnboardingView: View {
                             }
                         }
                     case 1:
-                        OnboardingStepHeader(symbol: "calendar", title: "Plan your daily pace", detail: "Choose a suggested starting point for your routine. This saves a planning preference; set each deck’s actual daily limits in Deck Options.")
+                        OnboardingStepHeader(symbol: "calendar", title: "Plan your daily pace", detail: "Choose a suggested starting point for your routine. New decks use these daily limits. Existing decks keep their limits, which you can change in Deck Options.")
                         VStack(spacing: 12) {
                             ForEach(dailyOptions, id: \.new) { option in
-                                OnboardingChoiceRow(title: "\(option.title) · \(option.new) new / day", detail: "Suggested pace: \(option.new) new cards and \(option.review) reviews per day. \(option.detail)", isSelected: userDailyNewLimit == option.new) {
+                                OnboardingChoiceRow(title: "\(option.title) · \(option.new) new / day", detail: "Up to \(option.review) reviews per day. \(option.detail)", isSelected: userDailyNewLimit == option.new) {
                                     userDailyNewLimit = option.new
                                     userDailyReviewLimit = option.review
                                 }

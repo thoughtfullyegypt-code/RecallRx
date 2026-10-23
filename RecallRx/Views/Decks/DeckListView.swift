@@ -35,10 +35,6 @@ struct DeckListView: View {
         .task {
             if viewModel == nil {
                 let vm = DeckViewModel(modelContext: modelContext)
-                if vm.decks.isEmpty {
-                    SampleMedicalData.loadSampleMedicalDeck(into: modelContext)
-                    vm.fetchDecks()
-                }
                 viewModel = vm
             } else {
                 viewModel?.fetchDecks()

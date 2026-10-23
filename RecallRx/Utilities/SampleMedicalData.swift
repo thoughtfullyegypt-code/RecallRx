@@ -4,50 +4,16 @@ import SwiftData
 struct SampleMedicalData {
     @MainActor
     static func loadSampleMedicalDeck(into modelContext: ModelContext) {
-        // Clean up any test decks created by test runs
-        if let leftoverDecks = try? modelContext.fetch(FetchDescriptor<Deck>()) {
-            for d in leftoverDecks where d.name.contains("Test Deck") || d.name.contains("Test Parent") {
-                modelContext.delete(d)
-            }
-        }
-        
-        // Create or find high-yield deck
+        // Loading examples is an explicit user action. A dedicated ID keeps the action
+        // idempotent without guessing ownership from a user's deck name.
+        let sampleDeckID = UUID(uuid: (0x52, 0x65, 0x63, 0x61, 0x6c, 0x6c, 0x52, 0x78,
+                                      0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01))
+        let descriptor = FetchDescriptor<Deck>(predicate: #Predicate { $0.id == sampleDeckID })
+        guard let existing = try? modelContext.fetch(descriptor), existing.isEmpty else { return }
         let deckName = "USMLE Step 1 & 2 High-Yield"
-        let deckDescriptor = FetchDescriptor<Deck>(predicate: #Predicate { $0.name == deckName })
-        if let existing = try? modelContext.fetch(deckDescriptor), let existingDeck = existing.first {
-            if !existingDeck.cards.contains(where: { $0.noteTypeRaw == NoteType.imageOcclusion.rawValue }) {
-                let cowDiagram = MedicalDiagramRegistry.diagrams[0]
-                let cowPayload = ImageOcclusionPayload(
-                    diagramId: cowDiagram.id,
-                    title: cowDiagram.title,
-                    masks: cowDiagram.defaultMasks,
-                    activeMaskId: 1, // ACoA
-                    mode: .hideAllGuessOne,
-                    clinicalNotes: "Anterior Communicating Artery (ACoA) is the most frequent location for saccular (berry) aneurysms. Rupture causes subarachnoid hemorrhage. Large aneurysms can cause bitemporal hemianopsia by compressing the central optic chiasm."
-                )
-                let card6 = Card(
-                    front: cowPayload.toJSON(),
-                    back: "Anterior Communicating Artery (ACoA)",
-                    deck: existingDeck,
-                    tags: [
-                        "#USMLE::Neurology::Cerebrovascular",
-                        "#USMLE::Pathology::19_Neuro::Aneurysms",
-                        "#ImageOcclusion"
-                    ],
-                    noteTypeRaw: NoteType.imageOcclusion.rawValue,
-                    isSuspended: false,
-                    clinicalPearls: "ACoA aneurysm: Bitemporal hemianopsia (optic chiasm compression). PCoA aneurysm: Ipsilateral CN III palsy with mydriasis (blown pupil, 'down and out' eye)."
-                )
-                card6.fsrsStability = 8.4
-                card6.fsrsDifficulty = 4.8
-                card6.fsrsReps = 2
-                modelContext.insert(card6)
-                try? modelContext.save()
-            }
-            return
-        }
-        
+
         let deck = Deck(
+            id: sampleDeckID,
             name: deckName,
             descriptionText: "High-yield USMLE Step 1 and Step 2 sample deck, with content-outline tags and collapsible study notes.",
             newCardsPerDay: 20,
@@ -113,9 +79,6 @@ struct SampleMedicalData {
             pathoma: "Chapter 2: Drug-induced acute interstitial nephritis characterized by eosinophils in urine and fever/rash.",
             clinicalPearls: "Step 2 CK: MRSA bacteremia requires prompt echocardiogram to rule out infective endocarditis."
         )
-        card3.fsrsStability = 12.5
-        card3.fsrsDifficulty = 4.2
-        card3.fsrsReps = 3
         modelContext.insert(card3)
         
         // Card 4: Step 2 endocrinology — diabetic ketoacidosis (QID 1894)
@@ -181,9 +144,6 @@ struct SampleMedicalData {
             isSuspended: false,
             clinicalPearls: "ACoA aneurysm: Bitemporal hemianopsia (optic chiasm compression). PCoA aneurysm: Ipsilateral CN III palsy with mydriasis (blown pupil, 'down and out' eye)."
         )
-        card6.fsrsStability = 8.4
-        card6.fsrsDifficulty = 4.8
-        card6.fsrsReps = 2
         modelContext.insert(card6)
         
         // Save database

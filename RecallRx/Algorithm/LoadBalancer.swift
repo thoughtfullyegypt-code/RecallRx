@@ -9,10 +9,7 @@ final class LoadBalancer {
     // MARK: - Configuration
     static var isEnabled: Bool {
         get {
-            if UserDefaults.standard.object(forKey: "enableLoadBalancer") == nil {
-                return true // Enabled by default as unfair advantage
-            }
-            return UserDefaults.standard.bool(forKey: "enableLoadBalancer")
+            isEnabled(in: .standard)
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "enableLoadBalancer")
@@ -21,14 +18,22 @@ final class LoadBalancer {
     
     static var maxDailyReviews: Int {
         get {
-            let val = UserDefaults.standard.integer(forKey: "burnoutShieldMaxDaily")
-            return val > 0 ? val : 150
+            maxDailyReviews(in: .standard)
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "burnoutShieldMaxDaily")
         }
     }
     
+    static func isEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: "enableLoadBalancer") == nil || defaults.bool(forKey: "enableLoadBalancer")
+    }
+
+    static func maxDailyReviews(in defaults: UserDefaults) -> Int {
+        let value = defaults.integer(forKey: "burnoutShieldMaxDaily")
+        return value > 0 ? value : 150
+    }
+
     // MARK: - Fuzz Interval Calculation
     
     /// Computes allowable fuzz range around a target interval (in days)
@@ -64,9 +69,10 @@ final class LoadBalancer {
         targetInterval: Double,
         deckCards: [Card],
         calendar: Calendar = .current,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        defaults: UserDefaults = .standard
     ) -> Double {
-        guard isEnabled && targetInterval >= 2.0 else {
+        guard isEnabled(in: defaults) && targetInterval >= 2.0 else {
             return targetInterval
         }
         
@@ -123,14 +129,15 @@ final class LoadBalancer {
         maxDailyCap: Int? = nil,
         context: ModelContext,
         calendar: Calendar = .current,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        defaults: UserDefaults = .standard
     ) -> Int {
-        let cap = maxDailyCap ?? maxDailyReviews
+        let cap = maxDailyCap ?? maxDailyReviews(in: defaults)
         guard cap > 0 else { return 0 }
         
         let now = referenceDate
         let overdueCards = deck.cards
-            .filter { !$0.isSuspended && !$0.isBuried && $0.state == .review && $0.dueDate < now }
+            .filter { !$0.isSuspended && !Scheduler.isBuried($0, at: now, calendar: calendar) && $0.state == .review && $0.dueDate < now }
             .sorted { $0.fsrsStability < $1.fsrsStability }
         
         guard overdueCards.count > cap else {

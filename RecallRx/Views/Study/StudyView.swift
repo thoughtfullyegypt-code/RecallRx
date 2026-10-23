@@ -7,6 +7,7 @@ struct StudyView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     
     let deck: Deck
     @State private var viewModel: StudyViewModel?
@@ -34,12 +35,10 @@ struct StudyView: View {
                             correctCount: vm.correctCount,
                             elapsedTime: vm.elapsedTime,
                             onDone: { dismiss() },
-                            onStudyMore: {
-                                Scheduler.unburyAllCards(in: vm.deck)
-                                vm.buildStudyQueue()
-                                vm.nextCard()
-                            }
+                            onStudyMore: reviewBuriedAction(vm: vm)
                         )
+                    } else if vm.isWaitingForLearning, let nextDate = vm.nextLearningDate {
+                        waitingContent(nextDate: nextDate, remaining: vm.studyQueue.count)
                     } else if let card = vm.currentCard {
                         studyContent(vm: vm, card: card)
                     } else {
@@ -74,10 +73,12 @@ struct StudyView: View {
                             .disabled(!vm.canUndo)
 
                         Menu("Study options", systemImage: "ellipsis.circle") {
-                            Button("Bury card", systemImage: "moon", action: vm.skipCard)
+                            Button("Bury until tomorrow", systemImage: "moon", action: vm.skipCard)
+                                .disabled(vm.currentCard == nil || vm.hasRatedCurrentCard)
                             Button("Suspend card", systemImage: "pause") {
                                 suspendCurrentCard(vm: vm)
                             }
+                            .disabled(vm.currentCard == nil || vm.hasRatedCurrentCard)
                             Divider()
                             Toggle("Swipe to grade", systemImage: "hand.draw", isOn: $isSwipeGradingEnabled)
                             if isSwipeGradingEnabled {
@@ -92,13 +93,15 @@ struct StudyView: View {
             if let vm = viewModel {
                 Group {
                     Button("") {
-                        if !vm.isShowingAnswer {
+                        if vm.hasRatedCurrentCard {
+                            vm.nextCard()
+                        } else if !vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.showAnswer()
                             }
                         } else {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.good)
+                                _ = vm.rateCard(.good)
                             }
                         }
                     }
@@ -107,7 +110,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.again)
+                                _ = vm.rateCard(.again)
                             }
                         }
                     }
@@ -116,7 +119,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.hard)
+                                _ = vm.rateCard(.hard)
                             }
                         }
                     }
@@ -125,7 +128,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.good)
+                                _ = vm.rateCard(.good)
                             }
                         }
                     }
@@ -134,7 +137,7 @@ struct StudyView: View {
                     Button("") {
                         if vm.isShowingAnswer {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                                vm.rateCard(.easy)
+                                _ = vm.rateCard(.easy)
                             }
                         }
                     }
@@ -159,6 +162,12 @@ struct StudyView: View {
                 .accessibilityHidden(true)
             }
         }
+        .alert("Study update couldn't be saved", isPresented: Binding(
+            get: { viewModel?.errorMessage != nil },
+            set: { if !$0 { viewModel?.errorMessage = nil } }
+        )) { } message: {
+            Text(viewModel?.errorMessage ?? "Please try again.")
+        }
         .sensoryFeedback(.impact(weight: .medium), trigger: feedbackTrigger)
         .onDisappear {
             undoToastTimer?.cancel()
@@ -172,8 +181,46 @@ struct StudyView: View {
                 bindControllerCallbacks(vm: vm)
             }
         }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+                viewModel?.refreshDueCards()
+            }
+        }
     }
-    
+
+    private func reviewBuriedAction(vm: StudyViewModel) -> (() -> Void)? {
+        guard vm.deck.cards.contains(where: \.isBuried) else { return nil }
+        return { vm.restartIncludingBuriedCards() }
+    }
+
+    private func waitingContent(nextDate: Date, remaining: Int) -> some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                ContentUnavailableView {
+                    Label("Let this one settle", systemImage: "clock")
+                } description: {
+                    Text("\(remaining) learning cards are scheduled later. The next card will appear when its interval is due.")
+                }
+                Text(nextDate, style: .timer)
+                    .font(.largeTitle.monospacedDigit())
+                    .accessibilityLabel("Time until the next learning card")
+                Text("You can leave this screen and come back later.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Return to deck", action: { dismiss() })
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+            }
+            .frame(maxWidth: AppTheme.contentWidth)
+            .padding(24)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppTheme.canvas)
+    }
+
     private func bindControllerCallbacks(vm: StudyViewModel) {
         remoteManager.onShowAnswer = {
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
@@ -183,32 +230,34 @@ struct StudyView: View {
         remoteManager.onRateAgain = {
             if vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.again)
+                    _ = vm.rateCard(.again)
                 }
             }
         }
         remoteManager.onRateHard = {
             if vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.hard)
+                    _ = vm.rateCard(.hard)
                 }
             }
         }
         remoteManager.onRateGood = {
-            if !vm.isShowingAnswer {
+            if vm.hasRatedCurrentCard {
+                vm.nextCard()
+            } else if !vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     vm.showAnswer()
                 }
             } else {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.good)
+                    _ = vm.rateCard(.good)
                 }
             }
         }
         remoteManager.onRateEasy = {
             if vm.isShowingAnswer {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    vm.rateCard(.easy)
+                    _ = vm.rateCard(.easy)
                 }
             }
         }
@@ -235,7 +284,7 @@ struct StudyView: View {
                 VStack(spacing: 20) {
                     StudySessionHeaderView(
                         studiedCount: vm.cardsStudied,
-                        remainingCount: vm.studyQueue.count + 1,
+                        remainingCount: vm.studyQueue.count + (vm.hasRatedCurrentCard ? 0 : 1),
                         newCount: vm.newCount,
                         learningCount: vm.learningCount,
                         reviewCount: vm.reviewCount,
@@ -265,7 +314,7 @@ struct StudyView: View {
                     .offset(x: reduceMotion ? 0 : swipeOffset.width, y: reduceMotion ? 0 : swipeOffset.height)
                     .rotationEffect(.degrees(reduceMotion ? 0 : Double(swipeOffset.width / 30)))
                     .overlay {
-                        if isSwipeGradingEnabled && vm.isShowingAnswer {
+                        if isSwipeGradingEnabled && vm.isShowingAnswer && !vm.hasRatedCurrentCard {
                             swipeGradingBadgeOverlay
                         }
                     }
@@ -283,7 +332,7 @@ struct StudyView: View {
                                     revealAnswer(vm: vm)
                                 }
                             },
-                        including: isSwipeGradingEnabled ? .all : .none
+                        including: isSwipeGradingEnabled && !vm.hasRatedCurrentCard ? .all : .none
                     )
                     .accessibilityAction(named: "Show answer") {
                         revealAnswer(vm: vm)
@@ -320,11 +369,14 @@ struct StudyView: View {
     private func studyActions(vm: StudyViewModel) -> some View {
         StudyActionsView(
             isShowingAnswer: vm.isShowingAnswer,
+            hasRatedCurrentCard: vm.hasRatedCurrentCard,
+            savedRating: vm.currentRating?.name,
             intervalStrings: vm.intervalStrings,
             undoMessage: vm.canUndo ? undoToastMessage : nil,
             swipeGradingEnabled: isSwipeGradingEnabled,
             disableSwipeUpEasy: disableSwipeUpEasy,
             onShowAnswer: { revealAnswer(vm: vm) },
+            onNextCard: vm.nextCard,
             onRate: { rating in
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     performRating(rating, vm: vm)
@@ -345,10 +397,17 @@ struct StudyView: View {
     }
 
     private func suspendCurrentCard(vm: StudyViewModel) {
-        guard let card = vm.currentCard else { return }
+        guard let card = vm.currentCard, !vm.hasRatedCurrentCard else { return }
+        let previousModifiedAt = card.modifiedAt
         Scheduler.suspendCard(card)
-        try? modelContext.save()
-        vm.nextCard()
+        do {
+            try modelContext.save()
+            vm.nextCard()
+        } catch {
+            card.isSuspended = false
+            card.modifiedAt = previousModifiedAt
+            vm.errorMessage = "The card could not be suspended. Try again."
+        }
     }
 
     // MARK: - Swipe Grading Overlays & Gestures
@@ -424,8 +483,9 @@ struct StudyView: View {
     }
 
     private func performRating(_ rating: Rating, vm: StudyViewModel) {
-        vm.rateCard(rating)
-        showUndoToast(message: "Rated \(rating.name)")
+        if vm.rateCard(rating) {
+            showUndoToast(message: "Rated \(rating.name)")
+        }
     }
     
     private func showUndoToast(message: String) {

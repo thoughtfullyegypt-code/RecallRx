@@ -169,8 +169,7 @@ struct DeckDetailView: View {
 
     @ViewBuilder
     private var studyButtonSection: some View {
-        let totalDue = min(deck.newCards, deck.newCardsPerDay)
-            + deck.learningCards + min(deck.dueCards, deck.reviewsPerDay)
+        let totalDue = Scheduler.getDueCards(from: deck).count
 
         NavigationLink(destination: StudyView(deck: deck)) {
             HStack(spacing: 12) {

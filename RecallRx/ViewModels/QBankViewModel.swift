@@ -55,32 +55,9 @@ final class QBankViewModel {
     
     // MARK: - Parse QIDs from free text
     var parsedQIDs: [String] {
-        // Extracts digits or QID tokens separated by commas, spaces, newlines, semicolons
-        let delimiters = CharacterSet(charactersIn: ",; \n\r\t")
-        let tokens = rawInput
-            .components(separatedBy: delimiters)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        
-        var qids: [String] = []
-        for token in tokens {
-            // Remove common prefixes like "QID_", "qid:", "#UWorld::", "UWorld_", etc.
-            var cleaned = token
-            if let range = cleaned.range(of: "QID_", options: .caseInsensitive) {
-                cleaned = String(cleaned[range.upperBound...])
-            } else if let range = cleaned.range(of: "qid:", options: .caseInsensitive) {
-                cleaned = String(cleaned[range.upperBound...])
-            }
-            
-            // Extract digits or clean identifier
-            cleaned = cleaned.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-            if !cleaned.isEmpty && !qids.contains(cleaned) {
-                qids.append(cleaned)
-            }
-        }
-        return qids
+        QuestionIDMatcher.parseInput(rawInput)
     }
-    
+
     // MARK: - Search
     func searchQIDs() {
         isSearching = true
@@ -116,45 +93,15 @@ final class QBankViewModel {
     }
     
     private func matches(card: Card, qid: String, source: QBankSource) -> Bool {
-        let qidLower = qid.lowercased()
-        
-        for tag in card.tags {
-            let tagLower = tag.lowercased()
-            
-            // Check QBank source tag alignment
-            let sourceMatches: Bool
-            switch source {
-            case .all:
-                sourceMatches = true
-            case .uworld:
-                sourceMatches = tagLower.contains("uworld")
-            case .amboss:
-                sourceMatches = tagLower.contains("amboss")
-            }
-            
-            guard sourceMatches else { continue }
-            
-            // Match a tag that contains the question id, for example QID_1234.
-            if tagLower.contains("qid_\(qidLower)") ||
-               tagLower.contains("qid:\(qidLower)") ||
-               tagLower.contains("::\(qidLower)") ||
-               tagLower.hasSuffix("_\(qidLower)") ||
-               tagLower == qidLower {
-                return true
-            }
+        let sourceName: String?
+        switch source {
+        case .all: sourceName = nil
+        case .uworld: sourceName = "uworld"
+        case .amboss: sourceName = "amboss"
         }
-        
-        // Fallback: check front or back for explicit QID indicator
-        if card.front.localizedCaseInsensitiveContains("QID: \(qid)") ||
-           card.front.localizedCaseInsensitiveContains("QID_\(qid)") ||
-           card.back.localizedCaseInsensitiveContains("QID: \(qid)") ||
-           card.back.localizedCaseInsensitiveContains("QID_\(qid)") {
-            return true
-        }
-        
-        return false
+        return QuestionIDMatcher.matches(qid: qid, source: sourceName, tags: card.tags, front: card.front, back: card.back)
     }
-    
+
     // MARK: - Aggregates
     var allMatchedCards: [Card] {
         var set = Set<UUID>()

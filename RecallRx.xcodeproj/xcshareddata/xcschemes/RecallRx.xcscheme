@@ -40,8 +40,19 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
+      shouldUseLaunchSchemeArgsEnv = "NO"
+      codeCoverageEnabled = "YES"
+      onlyGenerateCoverageForSpecifiedTargets = "YES"
       shouldAutocreateTestPlan = "YES">
+      <CodeCoverageTargets>
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "B6FFCCD056086A8A1B21344C"
+            BuildableName = "RecallRx.app"
+            BlueprintName = "RecallRx"
+            ReferencedContainer = "container:RecallRx.xcodeproj">
+         </BuildableReference>
+      </CodeCoverageTargets>
       <Testables>
          <TestableReference
             skipped = "NO">
@@ -54,6 +65,13 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "RECALLRX_TESTING"
+            value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

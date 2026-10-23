@@ -54,14 +54,20 @@ struct FSRSAlgorithm {
         now: Date = Date()
     ) -> FSRSReviewResult {
         let grade = ratingToFSRSGrade(rating)
-        let lastDate = card.lastReviewDate ?? card.createdAt
+        let inferredLastReview = card.state == .review && card.interval > 0
+            ? card.dueDate.addingTimeInterval(-card.interval * 86400) : card.createdAt
+        let lastDate = card.lastReviewDate ?? inferredLastReview
         let elapsedDays = max(0.0, now.timeIntervalSince(lastDate) / 86400.0)
 
-        if card.state == .new || card.fsrsStability <= 0 {
+        if card.state == .new {
             return reviewNewCard(rating: rating, grade: grade, parameters: parameters)
         }
 
-        let currentS = max(0.001, card.fsrsStability)
+        // SM-2 imports can have real review progression without FSRS fields. Use
+        // their existing interval as a conservative conversion seed, rather than
+        // treating a mature card as a new introduction or inventing old reviews.
+        let currentS = card.fsrsStability > 0
+            ? max(0.001, card.fsrsStability) : min(36500, max(1, card.interval))
         let currentD = card.fsrsDifficulty > 0 ? card.fsrsDifficulty : initialDifficulty(grade: 3, parameters: parameters)
         let sameDay = elapsedDays < 1.0
 
@@ -85,8 +91,8 @@ struct FSRSAlgorithm {
                 newInterval: relearningStepsMinutes[0] / 1440.0,
                 newStability: nextS,
                 newDifficulty: nextD,
-                newReps: card.fsrsReps,
-                newLapses: card.fsrsLapses + 1,
+                newReps: previousRepetitions(for: card),
+                newLapses: previousLapses(for: card) + 1,
                 newState: .relearning,
                 newLearningStep: 0
             )
@@ -103,8 +109,8 @@ struct FSRSAlgorithm {
             newInterval: scheduledInterval(stability: nextS, parameters: parameters),
             newStability: nextS,
             newDifficulty: nextD,
-            newReps: card.fsrsReps + 1,
-            newLapses: card.fsrsLapses,
+            newReps: previousRepetitions(for: card) + 1,
+            newLapses: previousLapses(for: card),
             newState: .review,
             newLearningStep: 0
         )
@@ -182,8 +188,8 @@ struct FSRSAlgorithm {
                 newInterval: steps[0] / 1440.0,
                 newStability: nextS,
                 newDifficulty: nextD,
-                newReps: card.fsrsReps,
-                newLapses: card.state == .review ? card.fsrsLapses + 1 : card.fsrsLapses,
+                newReps: previousRepetitions(for: card),
+                newLapses: card.state == .review ? previousLapses(for: card) + 1 : previousLapses(for: card),
                 newState: card.state == .review ? .relearning : card.state,
                 newLearningStep: 0
             )
@@ -193,8 +199,8 @@ struct FSRSAlgorithm {
                 newInterval: steps[step] / 1440.0,
                 newStability: nextS,
                 newDifficulty: nextD,
-                newReps: card.fsrsReps,
-                newLapses: card.fsrsLapses,
+                newReps: previousRepetitions(for: card),
+                newLapses: previousLapses(for: card),
                 newState: card.state == .review ? .review : card.state,
                 newLearningStep: step
             )
@@ -205,8 +211,8 @@ struct FSRSAlgorithm {
                     newInterval: scheduledInterval(stability: nextS, parameters: parameters),
                     newStability: nextS,
                     newDifficulty: nextD,
-                    newReps: card.fsrsReps + 1,
-                    newLapses: card.fsrsLapses,
+                    newReps: previousRepetitions(for: card) + 1,
+                    newLapses: previousLapses(for: card),
                     newState: .review,
                     newLearningStep: 0
                 )
@@ -216,12 +222,20 @@ struct FSRSAlgorithm {
                 newInterval: steps[nextStep] / 1440.0,
                 newStability: nextS,
                 newDifficulty: nextD,
-                newReps: card.fsrsReps,
-                newLapses: card.fsrsLapses,
+                newReps: previousRepetitions(for: card),
+                newLapses: previousLapses(for: card),
                 newState: card.state,
                 newLearningStep: nextStep
             )
         }
+    }
+
+    private static func previousRepetitions(for card: Card) -> Int {
+        card.fsrsStability > 0 ? card.fsrsReps : max(card.fsrsReps, card.repetitions)
+    }
+
+    private static func previousLapses(for card: Card) -> Int {
+        card.fsrsStability > 0 ? card.fsrsLapses : max(card.fsrsLapses, card.lapseCount)
     }
 
     // MARK: - Math
@@ -346,9 +360,10 @@ struct FSRSAlgorithm {
     static func nextIntervalDescription(
         card: Card,
         rating: SM2Algorithm.Rating,
-        parameters: Parameters = .default
+        parameters: Parameters = .default,
+        now: Date = .now
     ) -> String {
-        let result = review(card: card, rating: rating, parameters: parameters)
+        let result = review(card: card, rating: rating, parameters: parameters, now: now)
         return SM2Algorithm.formatInterval(days: result.newInterval, state: result.newState)
     }
 }

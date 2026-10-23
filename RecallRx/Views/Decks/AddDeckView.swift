@@ -22,6 +22,9 @@ struct AddDeckView: View {
         self.viewModel = viewModel
         self.initialParentDeckID = initialParentDeckID
         self._selectedParentDeckID = State(initialValue: initialParentDeckID)
+        let defaults = UserDefaults.standard
+        self._newCardsPerDay = State(initialValue: (defaults.object(forKey: "defaultNewCardsPerDay") as? Int).map { max(0, $0) } ?? 20)
+        self._reviewsPerDay = State(initialValue: (defaults.object(forKey: "defaultMaxReviewsPerDay") as? Int).map { max(0, $0) } ?? 200)
     }
 
     private var isSaveDisabled: Bool {
@@ -31,7 +34,8 @@ struct AddDeckView: View {
     private var hasUnsavedChanges: Bool {
         !name.isEmpty || !descriptionText.isEmpty
             || selectedParentDeckID != initialParentDeckID
-            || newCardsPerDay != 20 || reviewsPerDay != 200
+            || newCardsPerDay != ((UserDefaults.standard.object(forKey: "defaultNewCardsPerDay") as? Int) ?? 20)
+            || reviewsPerDay != ((UserDefaults.standard.object(forKey: "defaultMaxReviewsPerDay") as? Int) ?? 200)
     }
 
     var body: some View {
@@ -70,7 +74,6 @@ struct AddDeckView: View {
                     Text("Choose an existing deck to create a subdeck inside it.")
                 }
 
-                if viewModel == nil {
                     Section {
                         Stepper(value: $newCardsPerDay, in: 0...9999, step: 5) {
                             LabeledContent("New cards per day") {
@@ -87,15 +90,6 @@ struct AddDeckView: View {
                     } footer: {
                         Text("Daily limits help keep each session manageable. You can change them in Deck Options.")
                     }
-                } else {
-                    Section {
-                        Label("Start with 20 new cards and up to 200 reviews per day.", systemImage: "leaf")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } footer: {
-                        Text("Adjust your daily limits in Deck Options after creating your deck.")
-                    }
-                }
             }
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
@@ -144,7 +138,9 @@ struct AddDeckView: View {
             vm.addDeck(
                 name: trimmedName,
                 description: descriptionText,
-                parentDeckID: selectedParentDeckID
+                parentDeckID: selectedParentDeckID,
+                newCardsPerDay: newCardsPerDay,
+                reviewsPerDay: reviewsPerDay
             )
         } else {
             let newDeck = Deck(

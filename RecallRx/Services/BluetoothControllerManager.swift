@@ -6,7 +6,7 @@ import GameController
 /// Enables hands-free studying with 8BitDo Micro, 8BitDo Zero 2, Joy-Cons, Xbox, and PlayStation controllers.
 @MainActor
 final class BluetoothControllerManager: ObservableObject {
-    static let shared = BluetoothControllerManager()
+    static let shared = BluetoothControllerManager(defaults: AppRuntime.defaults())
     
     // MARK: - Published State
     @Published var isConnected: Bool = false
@@ -32,9 +32,18 @@ final class BluetoothControllerManager: ObservableObject {
     var onUndo: (() -> Void)?
     var onBury: (() -> Void)?
     
-    private init() {
-        setupControllerObservers()
-        checkForConnectedControllers()
+    init(defaults: UserDefaults = .standard, observesControllers: Bool = true) {
+        _buttonAAction = AppStorage(wrappedValue: "good", "remoteButtonAAction", store: defaults)
+        _buttonBAction = AppStorage(wrappedValue: "again", "remoteButtonBAction", store: defaults)
+        _buttonXAction = AppStorage(wrappedValue: "hard", "remoteButtonXAction", store: defaults)
+        _buttonYAction = AppStorage(wrappedValue: "easy", "remoteButtonYAction", store: defaults)
+        _dpadDownAction = AppStorage(wrappedValue: "showAnswer", "remoteDpadDownAction", store: defaults)
+        _l1Action = AppStorage(wrappedValue: "undo", "remoteL1Action", store: defaults)
+        _r1Action = AppStorage(wrappedValue: "bury", "remoteR1Action", store: defaults)
+        if observesControllers && !AppRuntime.isTesting {
+            setupControllerObservers()
+            checkForConnectedControllers()
+        }
     }
     
     // MARK: - Observer Setup

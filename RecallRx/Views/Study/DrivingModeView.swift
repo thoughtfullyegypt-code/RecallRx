@@ -11,6 +11,7 @@ struct DrivingModeView: View {
     
     @State private var showingParkedAudit: Bool = false
     @State private var localReviewRecords: [DriveCardReviewRecord] = []
+    @State private var saveError: String?
     
     var body: some View {
         NavigationStack {
@@ -77,13 +78,18 @@ struct DrivingModeView: View {
                         }
                         .padding(.horizontal, 20)
                     }
-                    
+
+                    Text("Audio review uses short, learned text cards. Visual and unanswered notes are skipped; hidden deletions are read as ‘blank’.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 20)
+
                     Spacer()
-                    
+
                     // Main Card HUD Area
                     if let card = drivingManager.currentCard {
                         VStack(spacing: 16) {
-                            Text(drivingManager.sanitizeSpeechText(card.front))
+                            Text(drivingManager.currentQuestion)
                                 .font(.system(size: 26, weight: .bold, design: .rounded))
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
@@ -140,7 +146,7 @@ struct DrivingModeView: View {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 60))
                                 .foregroundColor(.green)
-                            Text("Drive Review Complete!")
+                            Text(drivingManager.sessionHistory.isEmpty ? "No audio reviews completed" : "Audio review complete")
                                 .font(.title2.bold())
                                 .foregroundColor(.white)
                             Text("Reviewed \(drivingManager.sessionHistory.count) cards hands-free.")
@@ -237,12 +243,6 @@ struct DrivingModeView: View {
                 parkedReviewSheet
             }
             .onAppear {
-                if deck.cards.allSatisfy({ $0.interval < 1.0 && $0.state != .review }) {
-                    for card in deck.cards.prefix(5) {
-                        card.interval = 3.0
-                        card.stateRaw = CardState.review.rawValue
-                    }
-                }
                 drivingManager.startSession(cards: deck.cards, maxCards: 25)
             }
             .onDisappear {
@@ -250,11 +250,6 @@ struct DrivingModeView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenParkedAudit"))) { _ in
                 drivingManager.stopSession()
-                if drivingManager.sessionHistory.isEmpty {
-                    for card in deck.cards.prefix(2) {
-                        drivingManager.evaluateAnswer(card: card, spokenText: card.back)
-                    }
-                }
                 localReviewRecords = drivingManager.sessionHistory
                 showingParkedAudit = true
             }
@@ -325,6 +320,9 @@ struct DrivingModeView: View {
                     .padding(.vertical, 4)
                 }
             }
+            .alert("Reviews couldn't be saved", isPresented: Binding(
+                get: { saveError != nil }, set: { if !$0 { saveError = nil } }
+            )) { Button("Keep Reviewing", role: .cancel) { } } message: { Text(saveError ?? "") }
             .navigationTitle("Parked Review & Corrections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -344,11 +342,14 @@ struct DrivingModeView: View {
     }
     
     private func commitAndDismiss() {
-        for record in localReviewRecords {
+        while let record = localReviewRecords.first {
             let safeRating: Rating = (record.assignedRating == .easy) ? .good : record.assignedRating
-            Scheduler.applyReview(card: record.card, rating: safeRating, timeTakenMs: 6000, context: modelContext)
+            guard Scheduler.applyReview(card: record.card, rating: safeRating, timeTakenMs: 6000, context: modelContext) else {
+                saveError = "Some reviews could not be saved. Saved reviews are kept; the remaining reviews are still here for you to retry."
+                return
+            }
+            localReviewRecords.removeFirst()
         }
-        try? modelContext.save()
         dismiss()
     }
 }

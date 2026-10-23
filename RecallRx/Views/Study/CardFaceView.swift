@@ -325,7 +325,7 @@ struct CardFaceView: View {
                 if isFront {
                     if let nextUnrevealed = clozes.first(where: { !revealedClozeIndices.contains($0.id) }) {
                         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                            revealedClozeIndices.insert(nextUnrevealed.id)
+                            _ = revealedClozeIndices.insert(nextUnrevealed.id)
                         }
                     }
                 }
@@ -387,9 +387,9 @@ struct CardFaceView: View {
         Button {
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 if isExpanded {
-                    expandedSections.remove(section)
+                    _ = expandedSections.remove(section)
                 } else {
-                    expandedSections.insert(section)
+                    _ = expandedSections.insert(section)
                 }
             }
         } label: {
@@ -419,6 +419,8 @@ struct CardFaceView: View {
     
     @ViewBuilder
     private func expandedSectionBox(_ section: MedicalSection, text: String) -> some View {
+        let backgroundColor: Color = section.color.opacity(0.08)
+        let borderColor: Color = section.color.opacity(0.25)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label(section.rawValue, systemImage: section.icon)
@@ -427,7 +429,7 @@ struct CardFaceView: View {
                 Spacer()
                 Button("Collapse \(section.rawValue)", systemImage: "chevron.up") {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                        expandedSections.remove(section)
+                        _ = expandedSections.remove(section)
                     }
                 }
                 .labelStyle(.iconOnly)
@@ -449,10 +451,10 @@ struct CardFaceView: View {
             }
         }
         .padding(14)
-        .background(section.color.opacity(0.08))
+        .background(backgroundColor)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(section.color.opacity(0.25), lineWidth: 1)
+                .stroke(borderColor, lineWidth: 1)
         )
         .cornerRadius(12)
         .transition(.opacity)

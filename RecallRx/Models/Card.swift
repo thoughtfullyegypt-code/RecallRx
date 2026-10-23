@@ -35,6 +35,7 @@ final class Card {
     var modifiedAt: Date = Date()
     var isSuspended: Bool = false
     var isBuried: Bool = false
+    var buriedUntil: Date? = nil
     var lapseCount: Int = 0
     var interval: Double = 0.0
     var easeFactor: Double = 2.5
@@ -88,6 +89,7 @@ final class Card {
         modifiedAt: Date = Date(),
         isSuspended: Bool = false,
         isBuried: Bool = false,
+        buriedUntil: Date? = nil,
         lapseCount: Int = 0,
         interval: Double = 0.0,
         easeFactor: Double = 2.5,
@@ -118,6 +120,7 @@ final class Card {
         self.modifiedAt = modifiedAt
         self.isSuspended = isSuspended
         self.isBuried = isBuried
+        self.buriedUntil = buriedUntil
         self.lapseCount = lapseCount
         self.interval = interval
         self.easeFactor = easeFactor
@@ -150,6 +153,7 @@ final class Card {
         modifiedAt: Date = Date(),
         isSuspended: Bool = false,
         isBuried: Bool = false,
+        buriedUntil: Date? = nil,
         lapseCount: Int = 0,
         interval: Double = 0.0,
         easeFactor: Double = 2.5,
@@ -177,6 +181,7 @@ final class Card {
             modifiedAt: modifiedAt,
             isSuspended: isSuspended,
             isBuried: isBuried,
+            buriedUntil: buriedUntil,
             lapseCount: lapseCount,
             interval: interval,
             easeFactor: easeFactor,

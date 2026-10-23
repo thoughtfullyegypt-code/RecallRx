@@ -112,6 +112,41 @@
 		54DBC4364D2847B3369B70F2 /* StudySessionMetricView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A513554721FC8C723075BDC /* StudySessionMetricView.swift */; };
 		2D958ED0E77557DD64A4D2BE /* HeatmapDayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0CC58DAC2E42D3F1A108E /* HeatmapDayButton.swift */; };
 		E43406696B95655EBF6D0915 /* StudyActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FA52CDE9EE08A5ED7B7B5D /* StudyActionsView.swift */; };
+		AB9E1BDA2654CC1B0AE89BE6 /* DailyStudyUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B50A4FD23816D9D69967ED1 /* DailyStudyUsage.swift */; };
+		40B233F161E44AA342AA7A19 /* SM2SchedulingParameters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AF6F6E9678C586C49EF2B5 /* SM2SchedulingParameters.swift */; };
+		73464656C801662F04431AC7 /* AnkiArchiveReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8670459E7E16F9B05366C564 /* AnkiArchiveReader.swift */; };
+		EEC096E3912FDB9984B26F72 /* AnkiImportPackage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EA17A1568DCA85238B4CDCE /* AnkiImportPackage.swift */; };
+		61083410F4E8B6D5248AE009 /* AnkiMediaImportTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4049489FBE8BCB09018F607 /* AnkiMediaImportTransaction.swift */; };
+		1FB984A5888491B8E712C335 /* AnkiProtobuf.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11B1CF9DE3E888A2C861B75 /* AnkiProtobuf.swift */; };
+		6E8A00013858D2202BAB3B29 /* AnkiSchedulingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A785F3AE0678EC53C387CE35 /* AnkiSchedulingState.swift */; };
+		8F026E707C946F2A5FFC15CF /* AnkiTemplateRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0F412B79537AE500C6494A /* AnkiTemplateRenderer.swift */; };
+		D0D1F1474A85261BB0690AF3 /* AudioStudyAnswerEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2497F3B879BCBEBEE97379D /* AudioStudyAnswerEvaluator.swift */; };
+		F8CD59C35BCE2F67E5C0F990 /* AudioStudyContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C1A75926583AB31FA4CEEC /* AudioStudyContent.swift */; };
+		34550D3DF3227F9CD69BF476 /* BackupArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A399A7EB0E9147AFCE22905C /* BackupArchive.swift */; };
+		17459CF64A63604A29B6E7E4 /* BackupArchiveError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C307B6550C26CB7C9249D6B /* BackupArchiveError.swift */; };
+		74D744D161A50A3318615DD7 /* BackupCardRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710EFF2C5531597F2C68E68C /* BackupCardRecord.swift */; };
+		A12F82D854BADA08342513D7 /* BackupDeckRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2723D6B2314D6608740392B /* BackupDeckRecord.swift */; };
+		B9472A76A9913681768E4952 /* BackupMediaRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000B5094EE3A488EBF355B /* BackupMediaRecord.swift */; };
+		019E509747E0B553B057C56F /* BackupMediaStaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 698A6176439582759F9D6E1C /* BackupMediaStaging.swift */; };
+		5CA05DB2E15165962D18AB8A /* BackupReviewRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28005188BB148F73E39A8344 /* BackupReviewRecord.swift */; };
+		59B8DF6AF35EEE03B4ED269E /* BackupStoreWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40E83939F894B2F6E28EAFB5 /* BackupStoreWriter.swift */; };
+		D2D7EF4C31DA0A79AEFC5601 /* BackupTagRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA162C616A7D21A624D39EB /* BackupTagRecord.swift */; };
+		0BEF065D13A53B6044B6A74C /* CloudSyncError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46EE920EAF68447E73359F49 /* CloudSyncError.swift */; };
+		C958DFDB03E892DB77E8D78B /* DrivingVoiceCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC15E6137E0D3791D8DAE724 /* DrivingVoiceCommand.swift */; };
+		C66AD9F0966BBE4A22CFC821 /* LifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54179159E78B38FBDE80FE1A /* LifecycleCoordinator.swift */; };
+		D41ADD2474EC3417ABC69BD5 /* QuestionIDMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB492B54BF27B62ADE787058 /* QuestionIDMatcher.swift */; };
+		66F6FBA0B3E55F6C5D1951E6 /* SyncJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = D468E0A7A174FD89A1445A5E /* SyncJournal.swift */; };
+		BA4F74C6F62873FC670B84B5 /* SyncRecordIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4FE8EEA69678E83435D355D /* SyncRecordIndex.swift */; };
+		DEE6BFD25CCB2ACDF0C7F496 /* AppRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E7FB3344DA3F727438471F3 /* AppRuntime.swift */; };
+		676E3D8A8FFA57285FB1E10A /* StudySessionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A20C340756E42C80F529BF5 /* StudySessionSnapshot.swift */; };
+		C836081C94C64464A6A5C5C2 /* AnkiImportRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1609340D1A60AA754B66DF9C /* AnkiImportRegressionTests.swift */; };
+		7A8C26E1E1A5E3A763D8144C /* BackupRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE16AAE9DAA9201EFFCFF183 /* BackupRegressionTests.swift */; };
+		D8373D5C13172431CF103291 /* CloudSyncRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B98150C33F9368B7EBFA76 /* CloudSyncRegressionTests.swift */; };
+		4390EB92DB9EABA017919D18 /* LifecycleRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DBF5FCE27EF11CADF2E482 /* LifecycleRegressionTests.swift */; };
+		0DC17D213784FB148F16D01F /* MedicalWorkflowRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FD7F452D36E83870A48E7D /* MedicalWorkflowRegressionTests.swift */; };
+		283DD3C57D74600A9FD6674E /* SchedulingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C486CF6490B5F6031F2F6247 /* SchedulingRegressionTests.swift */; };
+		BE12E8124E74DD302253E752 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3849FC931C64D73FC2E42859 /* PrivacyInfo.xcprivacy */; };
+		F8C3745ABCB9F7AC077FF32E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = EF70DF45EEE26F1E8B115967 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -229,6 +264,41 @@
 		8A513554721FC8C723075BDC /* StudySessionMetricView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionMetricView.swift; sourceTree = "<group>"; };
 		77C0CC58DAC2E42D3F1A108E /* HeatmapDayButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapDayButton.swift; sourceTree = "<group>"; };
 		52FA52CDE9EE08A5ED7B7B5D /* StudyActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyActionsView.swift; sourceTree = "<group>"; };
+		5B50A4FD23816D9D69967ED1 /* DailyStudyUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyStudyUsage.swift; sourceTree = "<group>"; };
+		75AF6F6E9678C586C49EF2B5 /* SM2SchedulingParameters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SM2SchedulingParameters.swift; sourceTree = "<group>"; };
+		8670459E7E16F9B05366C564 /* AnkiArchiveReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiArchiveReader.swift; sourceTree = "<group>"; };
+		9EA17A1568DCA85238B4CDCE /* AnkiImportPackage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiImportPackage.swift; sourceTree = "<group>"; };
+		C4049489FBE8BCB09018F607 /* AnkiMediaImportTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiMediaImportTransaction.swift; sourceTree = "<group>"; };
+		D11B1CF9DE3E888A2C861B75 /* AnkiProtobuf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiProtobuf.swift; sourceTree = "<group>"; };
+		A785F3AE0678EC53C387CE35 /* AnkiSchedulingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiSchedulingState.swift; sourceTree = "<group>"; };
+		DC0F412B79537AE500C6494A /* AnkiTemplateRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiTemplateRenderer.swift; sourceTree = "<group>"; };
+		D2497F3B879BCBEBEE97379D /* AudioStudyAnswerEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStudyAnswerEvaluator.swift; sourceTree = "<group>"; };
+		74C1A75926583AB31FA4CEEC /* AudioStudyContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStudyContent.swift; sourceTree = "<group>"; };
+		A399A7EB0E9147AFCE22905C /* BackupArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupArchive.swift; sourceTree = "<group>"; };
+		9C307B6550C26CB7C9249D6B /* BackupArchiveError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupArchiveError.swift; sourceTree = "<group>"; };
+		710EFF2C5531597F2C68E68C /* BackupCardRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupCardRecord.swift; sourceTree = "<group>"; };
+		E2723D6B2314D6608740392B /* BackupDeckRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupDeckRecord.swift; sourceTree = "<group>"; };
+		A1000B5094EE3A488EBF355B /* BackupMediaRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupMediaRecord.swift; sourceTree = "<group>"; };
+		698A6176439582759F9D6E1C /* BackupMediaStaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupMediaStaging.swift; sourceTree = "<group>"; };
+		28005188BB148F73E39A8344 /* BackupReviewRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupReviewRecord.swift; sourceTree = "<group>"; };
+		40E83939F894B2F6E28EAFB5 /* BackupStoreWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupStoreWriter.swift; sourceTree = "<group>"; };
+		4CA162C616A7D21A624D39EB /* BackupTagRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupTagRecord.swift; sourceTree = "<group>"; };
+		46EE920EAF68447E73359F49 /* CloudSyncError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncError.swift; sourceTree = "<group>"; };
+		BC15E6137E0D3791D8DAE724 /* DrivingVoiceCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrivingVoiceCommand.swift; sourceTree = "<group>"; };
+		54179159E78B38FBDE80FE1A /* LifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleCoordinator.swift; sourceTree = "<group>"; };
+		CB492B54BF27B62ADE787058 /* QuestionIDMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionIDMatcher.swift; sourceTree = "<group>"; };
+		D468E0A7A174FD89A1445A5E /* SyncJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncJournal.swift; sourceTree = "<group>"; };
+		D4FE8EEA69678E83435D355D /* SyncRecordIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncRecordIndex.swift; sourceTree = "<group>"; };
+		4E7FB3344DA3F727438471F3 /* AppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntime.swift; sourceTree = "<group>"; };
+		6A20C340756E42C80F529BF5 /* StudySessionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionSnapshot.swift; sourceTree = "<group>"; };
+		1609340D1A60AA754B66DF9C /* AnkiImportRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnkiImportRegressionTests.swift; sourceTree = "<group>"; };
+		EE16AAE9DAA9201EFFCFF183 /* BackupRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupRegressionTests.swift; sourceTree = "<group>"; };
+		B3B98150C33F9368B7EBFA76 /* CloudSyncRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncRegressionTests.swift; sourceTree = "<group>"; };
+		63DBF5FCE27EF11CADF2E482 /* LifecycleRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleRegressionTests.swift; sourceTree = "<group>"; };
+		F3FD7F452D36E83870A48E7D /* MedicalWorkflowRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalWorkflowRegressionTests.swift; sourceTree = "<group>"; };
+		C486CF6490B5F6031F2F6247 /* SchedulingRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulingRegressionTests.swift; sourceTree = "<group>"; };
+		3849FC931C64D73FC2E42859 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		EF70DF45EEE26F1E8B115967 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -260,6 +330,21 @@
 		C8D71D58835C40F2879B7878 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				D4FE8EEA69678E83435D355D /* SyncRecordIndex.swift */,
+				D468E0A7A174FD89A1445A5E /* SyncJournal.swift */,
+				CB492B54BF27B62ADE787058 /* QuestionIDMatcher.swift */,
+				54179159E78B38FBDE80FE1A /* LifecycleCoordinator.swift */,
+				BC15E6137E0D3791D8DAE724 /* DrivingVoiceCommand.swift */,
+				46EE920EAF68447E73359F49 /* CloudSyncError.swift */,
+				DF4A0461A11BFE1482636214 /* Backup */,
+				74C1A75926583AB31FA4CEEC /* AudioStudyContent.swift */,
+				D2497F3B879BCBEBEE97379D /* AudioStudyAnswerEvaluator.swift */,
+				DC0F412B79537AE500C6494A /* AnkiTemplateRenderer.swift */,
+				A785F3AE0678EC53C387CE35 /* AnkiSchedulingState.swift */,
+				D11B1CF9DE3E888A2C861B75 /* AnkiProtobuf.swift */,
+				C4049489FBE8BCB09018F607 /* AnkiMediaImportTransaction.swift */,
+				9EA17A1568DCA85238B4CDCE /* AnkiImportPackage.swift */,
+				8670459E7E16F9B05366C564 /* AnkiArchiveReader.swift */,
 				F1F2F3F4F5F6010101010003 /* BluetoothControllerManager.swift */,
 				F1F2F3F4F5F6010101010004 /* OnDeviceMedicalAIEngine.swift */,
 				F1F2F3F4F5F6010101010005 /* MediaManager.swift */,
@@ -291,6 +376,7 @@
 		E1A100000000000000000011 /* RecallRxWidget */ = {
 			isa = PBXGroup;
 			children = (
+				EF70DF45EEE26F1E8B115967 /* PrivacyInfo.xcprivacy */,
 				E1A100000000000000000001 /* DueWidget.swift */,
 				E1A100000000000000000002 /* Info.plist */,
 				E1A100000000000000000003 /* RecallRxWidget.entitlements */,
@@ -332,6 +418,12 @@
 		A1TEST000000000000000006 /* RecallRxTests */ = {
 			isa = PBXGroup;
 			children = (
+				C486CF6490B5F6031F2F6247 /* SchedulingRegressionTests.swift */,
+				F3FD7F452D36E83870A48E7D /* MedicalWorkflowRegressionTests.swift */,
+				63DBF5FCE27EF11CADF2E482 /* LifecycleRegressionTests.swift */,
+				B3B98150C33F9368B7EBFA76 /* CloudSyncRegressionTests.swift */,
+				EE16AAE9DAA9201EFFCFF183 /* BackupRegressionTests.swift */,
+				1609340D1A60AA754B66DF9C /* AnkiImportRegressionTests.swift */,
 				1F7BBB7EAF3AC7CDF826CB5F /* TestRunner.swift */,
 				A1TEST000000000000000004 /* RecallRxTests.swift */,
 			);
@@ -349,6 +441,7 @@
 		F1CA65C92F4B5450295282E5 /* RecallRx */ = {
 			isa = PBXGroup;
 			children = (
+				3849FC931C64D73FC2E42859 /* PrivacyInfo.xcprivacy */,
 				C8D71D58835C40F2879B7878 /* Services */,
 				0BD69A70C3AC8B601F434F58 /* Algorithm */,
 				9CF43B31E8845D861542A38E /* Models */,
@@ -366,6 +459,8 @@
 		0BD69A70C3AC8B601F434F58 /* Algorithm */ = {
 			isa = PBXGroup;
 			children = (
+				75AF6F6E9678C586C49EF2B5 /* SM2SchedulingParameters.swift */,
+				5B50A4FD23816D9D69967ED1 /* DailyStudyUsage.swift */,
 				F1F2F3F4F5F6010101010001 /* LoadBalancer.swift */,
 				A6C8228E9E3E548D36A2CE9C /* FSRSAlgorithm.swift */,
 				EEC51CAE023AA5164633AE6A /* FSRSOptimizer.swift */,
@@ -392,6 +487,7 @@
 		94EC979C78A1C9E483FAC308 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				4E7FB3344DA3F727438471F3 /* AppRuntime.swift */,
 				11712D189AC53368FBF315E6 /* ClozeParser.swift */,
 				1F98B3E168DB05E90BE3D67A /* Constants.swift */,
 				5027FD2B323AD36C3329A4DC /* Extensions.swift */,
@@ -405,6 +501,7 @@
 		420CEB417186B52ECF642348 /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
+				6A20C340756E42C80F529BF5 /* StudySessionSnapshot.swift */,
 				9DDFB550033FFE73DC1F7A9D /* BrowseViewModel.swift */,
 				C8288F1D4F979FA8C1CA43E5 /* CardEditorViewModel.swift */,
 				5C361B950ADAD91740790B31 /* DeckViewModel.swift */,
@@ -562,6 +659,22 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		DF4A0461A11BFE1482636214 /* Backup */ = {
+			isa = PBXGroup;
+			children = (
+				4CA162C616A7D21A624D39EB /* BackupTagRecord.swift */,
+				40E83939F894B2F6E28EAFB5 /* BackupStoreWriter.swift */,
+				28005188BB148F73E39A8344 /* BackupReviewRecord.swift */,
+				698A6176439582759F9D6E1C /* BackupMediaStaging.swift */,
+				A1000B5094EE3A488EBF355B /* BackupMediaRecord.swift */,
+				E2723D6B2314D6608740392B /* BackupDeckRecord.swift */,
+				710EFF2C5531597F2C68E68C /* BackupCardRecord.swift */,
+				9C307B6550C26CB7C9249D6B /* BackupArchiveError.swift */,
+				A399A7EB0E9147AFCE22905C /* BackupArchive.swift */,
+			);
+			path = Backup;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -648,6 +761,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BE12E8124E74DD302253E752 /* PrivacyInfo.xcprivacy in Resources */,
 				04A7814E4EEC70DE7D6C41B1 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -656,6 +770,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F8C3745ABCB9F7AC077FF32E /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -666,6 +781,33 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				676E3D8A8FFA57285FB1E10A /* StudySessionSnapshot.swift in Sources */,
+				DEE6BFD25CCB2ACDF0C7F496 /* AppRuntime.swift in Sources */,
+				BA4F74C6F62873FC670B84B5 /* SyncRecordIndex.swift in Sources */,
+				66F6FBA0B3E55F6C5D1951E6 /* SyncJournal.swift in Sources */,
+				D41ADD2474EC3417ABC69BD5 /* QuestionIDMatcher.swift in Sources */,
+				C66AD9F0966BBE4A22CFC821 /* LifecycleCoordinator.swift in Sources */,
+				C958DFDB03E892DB77E8D78B /* DrivingVoiceCommand.swift in Sources */,
+				0BEF065D13A53B6044B6A74C /* CloudSyncError.swift in Sources */,
+				D2D7EF4C31DA0A79AEFC5601 /* BackupTagRecord.swift in Sources */,
+				59B8DF6AF35EEE03B4ED269E /* BackupStoreWriter.swift in Sources */,
+				5CA05DB2E15165962D18AB8A /* BackupReviewRecord.swift in Sources */,
+				019E509747E0B553B057C56F /* BackupMediaStaging.swift in Sources */,
+				B9472A76A9913681768E4952 /* BackupMediaRecord.swift in Sources */,
+				A12F82D854BADA08342513D7 /* BackupDeckRecord.swift in Sources */,
+				74D744D161A50A3318615DD7 /* BackupCardRecord.swift in Sources */,
+				17459CF64A63604A29B6E7E4 /* BackupArchiveError.swift in Sources */,
+				34550D3DF3227F9CD69BF476 /* BackupArchive.swift in Sources */,
+				F8CD59C35BCE2F67E5C0F990 /* AudioStudyContent.swift in Sources */,
+				D0D1F1474A85261BB0690AF3 /* AudioStudyAnswerEvaluator.swift in Sources */,
+				8F026E707C946F2A5FFC15CF /* AnkiTemplateRenderer.swift in Sources */,
+				6E8A00013858D2202BAB3B29 /* AnkiSchedulingState.swift in Sources */,
+				1FB984A5888491B8E712C335 /* AnkiProtobuf.swift in Sources */,
+				61083410F4E8B6D5248AE009 /* AnkiMediaImportTransaction.swift in Sources */,
+				EEC096E3912FDB9984B26F72 /* AnkiImportPackage.swift in Sources */,
+				73464656C801662F04431AC7 /* AnkiArchiveReader.swift in Sources */,
+				40B233F161E44AA342AA7A19 /* SM2SchedulingParameters.swift in Sources */,
+				AB9E1BDA2654CC1B0AE89BE6 /* DailyStudyUsage.swift in Sources */,
 				E43406696B95655EBF6D0915 /* StudyActionsView.swift in Sources */,
 				2D958ED0E77557DD64A4D2BE /* HeatmapDayButton.swift in Sources */,
 				54DBC4364D2847B3369B70F2 /* StudySessionMetricView.swift in Sources */,
@@ -781,6 +923,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				283DD3C57D74600A9FD6674E /* SchedulingRegressionTests.swift in Sources */,
+				0DC17D213784FB148F16D01F /* MedicalWorkflowRegressionTests.swift in Sources */,
+				4390EB92DB9EABA017919D18 /* LifecycleRegressionTests.swift in Sources */,
+				D8373D5C13172431CF103291 /* CloudSyncRegressionTests.swift in Sources */,
+				7A8C26E1E1A5E3A763D8144C /* BackupRegressionTests.swift in Sources */,
+				C836081C94C64464A6A5C5C2 /* AnkiImportRegressionTests.swift in Sources */,
 				AB42C1E3C78778409587EA32 /* TestRunner.swift in Sources */,
 				A1TEST000000000000000002 /* RecallRxTests.swift in Sources */,
 			);

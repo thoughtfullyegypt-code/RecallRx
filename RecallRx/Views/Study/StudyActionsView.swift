@@ -2,11 +2,14 @@ import SwiftUI
 
 struct StudyActionsView: View {
     let isShowingAnswer: Bool
+    let hasRatedCurrentCard: Bool
+    let savedRating: String?
     let intervalStrings: [SM2Algorithm.Rating: String]
     let undoMessage: String?
     let swipeGradingEnabled: Bool
     let disableSwipeUpEasy: Bool
     let onShowAnswer: () -> Void
+    let onNextCard: () -> Void
     let onRate: (SM2Algorithm.Rating) -> Void
     let onUndo: () -> Void
 
@@ -23,7 +26,18 @@ struct StudyActionsView: View {
                 }
             }
 
-            if isShowingAnswer {
+            if hasRatedCurrentCard {
+                Label(savedRating.map { "Saved as \($0)" } ?? "Review saved", systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button(action: onNextCard) {
+                    Label("Next card", systemImage: "arrow.right")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            } else if isShowingAnswer {
                 Text("How well did you remember?")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)

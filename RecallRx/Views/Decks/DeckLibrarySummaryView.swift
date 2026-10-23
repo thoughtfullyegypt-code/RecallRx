@@ -5,29 +5,14 @@ struct DeckLibrarySummaryView: View {
 
     let decks: [Deck]
 
-    private var visibleDecks: [Deck] {
-        decks.filter { !$0.name.contains("Test Deck") && !$0.name.contains("Validation Test") }
-    }
-
-    private var newCount: Int {
-        visibleDecks.reduce(0) { $0 + min($1.newCards, $1.newCardsPerDay) }
-    }
-
-    private var learningCount: Int {
-        visibleDecks.reduce(0) { $0 + $1.learningCards }
-    }
-
-    private var reviewCount: Int {
-        visibleDecks.reduce(0) { $0 + min($1.dueCards, $1.reviewsPerDay) }
-    }
-
-    private var nextDeck: Deck? {
-        visibleDecks.first {
-            min($0.newCards, $0.newCardsPerDay) + $0.learningCards + min($0.dueCards, $0.reviewsPerDay) > 0
-        }
-    }
-
     var body: some View {
+        let now = Date()
+        let queues = decks.map { (deck: $0, cards: Scheduler.getDueCards(from: $0, now: now)) }
+        let readyCards = queues.flatMap { $0.cards }
+        let newCount = readyCards.filter { $0.state == .new }.count
+        let learningCount = readyCards.filter { $0.state == .learning || $0.state == .relearning }.count
+        let reviewCount = readyCards.filter { $0.state == .review }.count
+        let nextDeck = queues.first { !$0.cards.isEmpty }?.deck
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Label("TODAY", systemImage: "sun.max")

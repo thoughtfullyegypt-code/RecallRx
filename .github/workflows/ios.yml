@@ -1,0 +1,101 @@
+name: iOS build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      RECALLRX_TESTING: "1"
+      XCODEGEN_VERSION: "2.46.0"
+      XCODEGEN_SHA256: "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect the installed Xcode toolchain
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+
+      - name: Install pinned XcodeGen
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" \
+            --output "$RUNNER_TEMP/xcodegen.zip"
+          echo "$XCODEGEN_SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum --algorithm 256 --check
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP/xcodegen-tool"
+          echo "$RUNNER_TEMP/xcodegen-tool/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Regenerate the project and shared test scheme
+        run: |
+          xcodegen --version
+          xcodegen generate --spec project.yml
+          xcodebuild -list -project RecallRx.xcodeproj
+
+      - name: Select an available iPhone simulator
+        id: simulator
+        run: |
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/devices.json"
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          devices = json.loads((Path(os.environ["RUNNER_TEMP"]) / "devices.json").read_text())["devices"]
+          runtimes = sorted(
+              (key for key in devices if ".iOS-" in key),
+              key=lambda key: tuple(int(value) for value in re.findall(r"\d+", key.split(".iOS-")[-1])),
+              reverse=True,
+          )
+          simulator = next(
+              (device for runtime in runtimes for device in devices[runtime]
+               if device.get("isAvailable") and device["name"].startswith("iPhone")),
+              None,
+          )
+          if simulator is None:
+              raise SystemExit("No available iPhone simulator is installed with this Xcode.")
+          print(f"Using {simulator['name']} ({simulator['udid']})")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"id={simulator['udid']}\n")
+          PY
+
+      - name: Build app, widget, and tests for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project RecallRx.xcodeproj -scheme RecallRx \
+            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}' \
+            -derivedDataPath "$RUNNER_TEMP/RecallRxDerivedData" \
+            CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/build.log"
+
+      - name: Run isolated tests
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project RecallRx.xcodeproj -scheme RecallRx \
+            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.id }}' \
+            -derivedDataPath "$RUNNER_TEMP/RecallRxDerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/RecallRxTests.xcresult" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/test.log"
+
+      - name: Upload build and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-diagnostics
+          path: |
+            ${{ runner.temp }}/build.log
+            ${{ runner.temp }}/test.log
+            ${{ runner.temp }}/RecallRxTests.xcresult
+          if-no-files-found: ignore
