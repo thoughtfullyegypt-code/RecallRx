@@ -511,6 +511,41 @@ final class CloudSyncManager: ObservableObject {
         guard !context.hasChanges else { throw CloudSyncError.unsavedChanges }
         var journal = try loadJournal()
         var index = try SyncRecordIndex(context: context)
+        let savedIndex = index
+        var savedDeckIDs: Set<UUID> = []
+        var savedCardIDs: Set<UUID> = []
+        var savedLogIDs: Set<UUID> = []
+        var restoreValues: [() -> Void] = []
+        var restoreRelationships: [() -> Void] = []
+
+        // Rollback refreshes persisted reads, but SwiftData can leave objects
+        // already held by a view with stale values. Retain only affected saved
+        // objects and their values, so recovery also repairs those references.
+        func rememberDeck(_ deck: Deck) {
+            guard savedDeckIDs.insert(deck.id).inserted else { return }
+            let snapshot = self.record(for: deck)
+            let cards = deck.cards
+            restoreValues.append { self.assignDeckValues(snapshot, to: deck) }
+            restoreRelationships.append { deck.cards = cards }
+        }
+        func rememberCard(_ card: Card) {
+            guard savedCardIDs.insert(card.id).inserted else { return }
+            let snapshot = self.record(for: card)
+            let deck = card.deck
+            let logs = card.reviewLogs
+            if let deck { rememberDeck(deck) }
+            restoreValues.append { self.assignCardValues(snapshot, to: card, deck: deck) }
+            restoreRelationships.append {
+                card.reviewLogs = logs
+                for log in logs { log.card = card }
+            }
+        }
+        func rememberLog(_ log: ReviewLog) {
+            guard savedLogIDs.insert(log.id).inserted else { return }
+            let card = log.card
+            if let card { rememberCard(card) }
+            restoreRelationships.append { log.card = card }
+        }
         let restoredRemoteNames = Set(deletions.filter { $0.recordType == deletionRecordType && $0.recordID.recordName.hasPrefix("deleted-") }
             .map { String($0.recordID.recordName.dropFirst("deleted-".count)) })
         let liveRemoteNames = Set(records.filter { $0.recordType != deletionRecordType }.map { $0.recordID.recordName })
@@ -553,6 +588,38 @@ final class CloudSyncManager: ObservableObject {
                     journal.pendingDeletions[logID.uuidString] = reviewRecordType
                 }
             }
+            // Capture the graph before any cascade or incoming relationship
+            // update can change it. New remote objects have no saved state.
+            for (name, type) in journal.tombstones {
+                if type == deckRecordType,
+                   let id = UUID(uuidString: String(name.dropFirst("deck-".count))),
+                   let deck = savedIndex.decks[id] {
+                    rememberDeck(deck)
+                    for cardID in savedIndex.cardIDsByDeck[id] ?? [] {
+                        if let card = savedIndex.cards[cardID] { rememberCard(card) }
+                    }
+                } else if let id = UUID(uuidString: name) {
+                    if type == cardRecordType, let card = savedIndex.cards[id] { rememberCard(card) }
+                    if type == reviewRecordType, let log = savedIndex.logs[id] { rememberLog(log) }
+                }
+            }
+            for record in records {
+                if record.recordType == deckRecordType,
+                   let id = UUID(uuidString: String(record.recordID.recordName.dropFirst("deck-".count))),
+                   let deck = savedIndex.decks[id] {
+                    rememberDeck(deck)
+                } else if record.recordType == cardRecordType {
+                    if let id = UUID(uuidString: record.recordID.recordName), let card = savedIndex.cards[id] {
+                        rememberCard(card)
+                    }
+                    if let name = record["deckID"] as? String, let id = UUID(uuidString: name),
+                       let deck = savedIndex.decks[id] { rememberDeck(deck) }
+                } else if record.recordType == reviewRecordType,
+                          let name = record["cardID"] as? String, let id = UUID(uuidString: name),
+                          let card = savedIndex.cards[id] {
+                    rememberCard(card)
+                }
+            }
             for (name, type) in journal.tombstones {
                 try deleteLocalRecord(name: name, type: type, context: context, index: &index)
                 journal.knownRecords.removeValue(forKey: name)
@@ -569,6 +636,11 @@ final class CloudSyncManager: ObservableObject {
             try persistChanges(context)
         } catch {
             context.rollback()
+            for restore in restoreValues { restore() }
+            for restore in restoreRelationships { restore() }
+            // Restored values equal the saved store. Clear any change tracking
+            // caused by repairing an observed model; never save a failed pull.
+            if context.hasChanges { context.rollback() }
             throw error
         }
         journal.knownRecords.merge(try inventory(context: context)) { _, new in new }
@@ -679,7 +751,12 @@ final class CloudSyncManager: ObservableObject {
         if let existing, existing.modifiedAt >= modifiedAt { return }
         let deck = existing ?? Deck(id: id, name: name)
         if existing == nil { context.insert(deck); index.decks[id] = deck }
-        deck.name = name
+        assignDeckValues(record, to: deck)
+    }
+
+    private func assignDeckValues(_ record: CKRecord, to deck: Deck) {
+        let modifiedAt = record["modifiedAt"] as? Date ?? .distantPast
+        deck.name = record["name"] as? String ?? ""
         deck.descriptionText = record["descriptionText"] as? String ?? ""
         deck.createdAt = record["createdAt"] as? Date ?? modifiedAt
         deck.parentDeckID = (record["parentDeckID"] as? String).flatMap(UUID.init(uuidString:))
@@ -714,7 +791,12 @@ final class CloudSyncManager: ObservableObject {
         guard let card else { throw CloudSyncError.invalidRecord(record.recordID.recordName) }
         if let oldDeckID = card.deck?.id { index.cardIDsByDeck[oldDeckID]?.remove(card.id) }
         if let deck { index.cardIDsByDeck[deck.id, default: []].insert(card.id) }
-        card.front = front
+        assignCardValues(record, to: card, deck: deck)
+    }
+
+    private func assignCardValues(_ record: CKRecord, to card: Card, deck: Deck?) {
+        let modifiedAt = record["modifiedAt"] as? Date ?? .distantPast
+        card.front = record["front"] as? String ?? ""
         card.back = record["back"] as? String ?? ""
         card.deck = deck
         card.tags = record["tags"] as? [String] ?? []

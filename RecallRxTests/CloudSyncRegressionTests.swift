@@ -121,6 +121,154 @@ final class CloudSyncRegressionTests: XCTestCase {
         XCTAssertEqual(isolated.data(forKey: "recallrx_sync_journal_v1"), originalJournal)
     }
 
+    func testFailedRemoteMoveAndReviewInsertionPreserveSavedGraphAndJournal() throws {
+        enum Failure: Error { case diskFull }
+        let container = try store()
+        let context = container.mainContext
+        let sourceDeck = Deck(name: "Source")
+        let targetDeck = Deck(name: "Target")
+        let card = Card(front: "Seed prompt", back: "Answer", deck: sourceDeck)
+        let targetCard = Card(front: "Keep in target", back: "Answer", deck: targetDeck)
+        let originalLog = ReviewLog(card: card, rating: 2)
+        context.insert(sourceDeck)
+        context.insert(targetDeck)
+        context.insert(card)
+        context.insert(targetCard)
+        context.insert(originalLog)
+        try context.save()
+        let savedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        card.front = "Original prompt"
+        card.interval = 12
+        card.modifiedAt = savedDate
+        try context.save()
+
+        let isolated = defaults()
+        var persistAttempts = 0
+        let sync = CloudSyncManager(defaults: isolated, monitorNetwork: false, persistChanges: { _ in
+            persistAttempts += 1
+            throw Failure.diskFull
+        })
+        try sync.captureLocalDeletions(context: context)
+        let originalJournal = try XCTUnwrap(isolated.data(forKey: "recallrx_sync_journal_v1"))
+        let remoteCard = sync.record(for: card)
+        remoteCard["deckID"] = targetDeck.id.uuidString as NSString
+        remoteCard["front"] = "Remote prompt" as NSString
+        remoteCard["modifiedAt"] = savedDate.addingTimeInterval(60) as NSDate
+        let remoteLog = CKRecord(recordType: "ReviewLog", recordID: CKRecord.ID(recordName: UUID().uuidString))
+        remoteLog["cardID"] = card.id.uuidString as NSString
+        remoteLog["rating"] = 3 as NSNumber
+
+        XCTAssertThrowsError(try sync.applyRemoteChanges(records: [remoteLog, remoteCard], context: context)) {
+            XCTAssertTrue($0 is Failure)
+        }
+        XCTAssertEqual(persistAttempts, 1)
+        XCTAssertEqual(card.front, "Original prompt")
+        XCTAssertEqual(card.interval, 12)
+        XCTAssertEqual(card.modifiedAt, savedDate)
+        XCTAssertTrue(card.deck === sourceDeck)
+        XCTAssertEqual(sourceDeck.cards.map(\.id), [card.id])
+        XCTAssertTrue(sourceDeck.cards.first === card)
+        XCTAssertEqual(targetDeck.cards.map(\.id), [targetCard.id])
+        XCTAssertTrue(targetDeck.cards.first === targetCard)
+        XCTAssertTrue(targetCard.deck === targetDeck)
+        XCTAssertEqual(card.reviewLogs.map(\.id), [originalLog.id])
+        XCTAssertTrue(card.reviewLogs.first === originalLog)
+        XCTAssertTrue(originalLog.card === card)
+        XCTAssertFalse(context.hasChanges)
+
+        let freshContext = ModelContext(container)
+        let decks = try freshContext.fetch(FetchDescriptor<Deck>())
+        let cards = try freshContext.fetch(FetchDescriptor<Card>())
+        let logs = try freshContext.fetch(FetchDescriptor<ReviewLog>())
+        XCTAssertEqual(decks.count, 2)
+        XCTAssertEqual(cards.count, 2)
+        XCTAssertEqual(logs.map(\.id), [originalLog.id])
+        let persistedSource = try XCTUnwrap(decks.first { $0.id == sourceDeck.id })
+        let persistedTarget = try XCTUnwrap(decks.first { $0.id == targetDeck.id })
+        let persistedCard = try XCTUnwrap(cards.first { $0.id == card.id })
+        XCTAssertEqual(persistedCard.front, "Original prompt")
+        XCTAssertEqual(persistedCard.interval, 12)
+        XCTAssertEqual(persistedCard.modifiedAt, savedDate)
+        XCTAssertEqual(persistedCard.deck?.id, sourceDeck.id)
+        XCTAssertEqual(persistedSource.cards.map(\.id), [card.id])
+        XCTAssertEqual(persistedTarget.cards.map(\.id), [targetCard.id])
+        XCTAssertEqual(persistedCard.reviewLogs.map(\.id), [originalLog.id])
+        XCTAssertEqual(logs.first?.card?.id, card.id)
+        XCTAssertFalse(context.hasChanges)
+        XCTAssertEqual(isolated.data(forKey: "recallrx_sync_journal_v1"), originalJournal)
+    }
+
+    func testFailedRemoteDeckDeletionPreservesSavedCascadeGraphAndJournal() throws {
+        enum Failure: Error { case diskFull }
+        let container = try store()
+        let context = container.mainContext
+        let deck = Deck(name: "Seed deck")
+        let card = Card(front: "Seed prompt", back: "Answer", deck: deck)
+        let log = ReviewLog(card: card, rating: 1)
+        context.insert(deck)
+        context.insert(card)
+        context.insert(log)
+        try context.save()
+        let savedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        deck.name = "Original deck"
+        deck.modifiedAt = savedDate
+        card.front = "Original prompt"
+        card.modifiedAt = savedDate
+        log.rating = 2
+        try context.save()
+
+        let isolated = defaults()
+        var persistAttempts = 0
+        let sync = CloudSyncManager(defaults: isolated, monitorNetwork: false, persistChanges: { _ in
+            persistAttempts += 1
+            throw Failure.diskFull
+        })
+        try sync.captureLocalDeletions(context: context)
+        let originalJournal = try XCTUnwrap(isolated.data(forKey: "recallrx_sync_journal_v1"))
+        let deckRecordID = CKRecord.ID(recordName: "deck-" + deck.id.uuidString)
+        XCTAssertThrowsError(try sync.applyRemoteChanges(records: [], deletions: [(deckRecordID, "Deck")], context: context)) {
+            XCTAssertTrue($0 is Failure)
+        }
+        XCTAssertEqual(persistAttempts, 1)
+        XCTAssertFalse(deck.isDeleted)
+        XCTAssertFalse(card.isDeleted)
+        XCTAssertFalse(log.isDeleted)
+        XCTAssertEqual(deck.name, "Original deck")
+        XCTAssertEqual(deck.modifiedAt, savedDate)
+        XCTAssertEqual(card.front, "Original prompt")
+        XCTAssertEqual(card.modifiedAt, savedDate)
+        XCTAssertEqual(log.rating, 2)
+        XCTAssertEqual(deck.cards.map(\.id), [card.id])
+        XCTAssertTrue(deck.cards.first === card)
+        XCTAssertTrue(card.deck === deck)
+        XCTAssertEqual(card.reviewLogs.map(\.id), [log.id])
+        XCTAssertTrue(card.reviewLogs.first === log)
+        XCTAssertTrue(log.card === card)
+        XCTAssertFalse(context.hasChanges)
+
+        let freshContext = ModelContext(container)
+        let decks = try freshContext.fetch(FetchDescriptor<Deck>())
+        let cards = try freshContext.fetch(FetchDescriptor<Card>())
+        let logs = try freshContext.fetch(FetchDescriptor<ReviewLog>())
+        XCTAssertEqual(decks.map(\.id), [deck.id])
+        XCTAssertEqual(cards.map(\.id), [card.id])
+        XCTAssertEqual(logs.map(\.id), [log.id])
+        let persistedDeck = try XCTUnwrap(decks.first)
+        let persistedCard = try XCTUnwrap(cards.first)
+        let persistedLog = try XCTUnwrap(logs.first)
+        XCTAssertEqual(persistedDeck.name, "Original deck")
+        XCTAssertEqual(persistedDeck.modifiedAt, savedDate)
+        XCTAssertEqual(persistedCard.front, "Original prompt")
+        XCTAssertEqual(persistedCard.modifiedAt, savedDate)
+        XCTAssertEqual(persistedLog.rating, 2)
+        XCTAssertEqual(persistedDeck.cards.map(\.id), [card.id])
+        XCTAssertEqual(persistedCard.deck?.id, deck.id)
+        XCTAssertEqual(persistedCard.reviewLogs.map(\.id), [log.id])
+        XCTAssertEqual(persistedLog.card?.id, card.id)
+        XCTAssertFalse(context.hasChanges)
+        XCTAssertEqual(isolated.data(forKey: "recallrx_sync_journal_v1"), originalJournal)
+    }
+
     func testOfflineDeletionSurvivesManagerRestartAndSuppressesStaleRemoteCard() throws {
         let container = try store()
         let deck = Deck(name: "Deck")
