@@ -39,7 +39,8 @@ final class ApkgImporter {
     static func importApkg(
         from fileURL: URL,
         into context: ModelContext,
-        mediaDirectoryURL: URL? = nil
+        mediaDirectoryURL: URL? = nil,
+        saveContext: ((ModelContext) throws -> Void)? = nil
     ) throws -> ApkgImportResult {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("apkg_extract_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
@@ -102,7 +103,6 @@ final class ApkgImporter {
                 if let match = cardsByID[content.id] {
                     card = match
                     isNew = false
-                    updatedCount += 1
                 } else {
                     card = Card(id: content.id)
                     transaction.insert(card)
@@ -111,7 +111,15 @@ final class ApkgImporter {
                     insertedCount += 1
                 }
                 let sourceModified = max(source.modified, note.modified)
-                let shouldImportSchedule = isNew || (card.reviewLogs.isEmpty && card.modifiedAt <= source.modified)
+                let shouldImportSchedule = isNew || (card.reviewLogs.isEmpty && card.modifiedAt < source.modified)
+                let mergedTags = Array(Set(card.tags).union(note.tags)).sorted()
+                let contentChanged = card.front != content.front || card.back != content.back || card.noteType != content.noteType
+                    || card.extra != content.extra || card.firstAid != content.firstAid || card.sketchy != content.sketchy
+                    || card.pathoma != content.pathoma || card.clinicalPearls != content.clinicalPearls
+                    || card.tags != mergedTags || card.deck?.id != deck.id
+                // Re-importing an unchanged package must not rewrite timestamps or pretend to add cards.
+                guard isNew || contentChanged || shouldImportSchedule else { continue }
+                if !isNew { updatedCount += 1 }
                 card.front = content.front
                 card.back = content.back
                 card.noteType = content.noteType
@@ -120,7 +128,7 @@ final class ApkgImporter {
                 card.sketchy = content.sketchy
                 card.pathoma = content.pathoma
                 card.clinicalPearls = content.clinicalPearls
-                card.tags = Array(Set(card.tags).union(note.tags)).sorted()
+                card.tags = mergedTags
                 card.deck = deck
                 // Once studied in RecallRx, re-importing the package must not undo the user's reviews.
                 if shouldImportSchedule {
@@ -130,7 +138,11 @@ final class ApkgImporter {
                 card.modifiedAt = isNew ? sourceModified : now
             }
             try media.install()
-            try transaction.save()
+            if let saveContext {
+                try saveContext(transaction)
+            } else {
+                try transaction.save()
+            }
             let names = Set(targetDecks.values.map(\.name)).sorted()
             return ApkgImportResult(
                 decksCount: newDeckCount, cardsCount: insertedCount, updatedCardsCount: updatedCount,

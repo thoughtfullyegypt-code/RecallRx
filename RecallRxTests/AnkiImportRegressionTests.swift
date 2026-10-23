@@ -26,7 +26,7 @@ final class AnkiImportRegressionTests: XCTestCase {
 
         let second = try fixture.importArchive(archive)
         XCTAssertEqual(second.cardsCount, 0)
-        XCTAssertEqual(second.updatedCardsCount, 3)
+        XCTAssertEqual(second.updatedCardsCount, 0)
         XCTAssertEqual(Set(try fixture.cards().map(\.id)), identities)
     }
 
@@ -146,13 +146,32 @@ final class AnkiImportRegressionTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedDatabaseSaveRollsBackNewCardsDecksAndInstalledMedia() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let archive = try fixture.archive(
+            notes: [Note(id: 1100, fields: ["Question", "Answer", ""])],
+            cards: [SourceCard(id: 2100, note: 1100)],
+            media: ["diagram.png": Data("image".utf8)]
+        )
+        XCTAssertThrowsError(try ApkgImporter.importApkg(
+            from: archive, into: fixture.container.mainContext, mediaDirectoryURL: fixture.media,
+            saveContext: { _ in throw NSError(domain: "AnkiFixtureSaveFailure", code: 1) }
+        ))
+        XCTAssertEqual(try fixture.cards().count, 0)
+        XCTAssertEqual(try ModelContext(fixture.container).fetchCount(FetchDescriptor<Deck>()), 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.media.path).count, 0)
+    }
+
+    @MainActor
     func testUnsafeArchiveAndMediaPathsFailWithoutWritingOutsideDirectory() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let archive = fixture.root.appendingPathComponent("unsafe.apkg")
-        try Fixture.zip([("../escaped", Data("bad".utf8))]).write(to: archive)
+        let escapedName = "anki-escaped-\(UUID().uuidString)"
+        try Fixture.zip([("../\(escapedName)", Data("bad".utf8))]).write(to: archive)
         XCTAssertThrowsError(try fixture.importArchive(archive))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.deletingLastPathComponent().appendingPathComponent("escaped").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.root.deletingLastPathComponent().appendingPathComponent(escapedName).path))
         let manager = MediaManager(mediaDirectoryURL: fixture.media)
         XCTAssertThrowsError(try manager.saveMedia(data: Data(), named: "../escaped"))
         XCTAssertNil(manager.getMediaURL(for: "%2E%2E/escaped"))

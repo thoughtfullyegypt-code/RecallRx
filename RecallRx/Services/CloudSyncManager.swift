@@ -226,7 +226,11 @@ final class CloudSyncManager: ObservableObject {
         if monitorNetwork && ProcessInfo.processInfo.environment["RECALLRX_TESTING"] != "1" {
             startNetworkMonitoring()
         }
-        self.lastSyncDate = defaults.object(forKey: "last_cloud_sync_timestamp") as? Date
+        if let date = defaults.object(forKey: "last_cloud_sync_timestamp") as? Date {
+            self.lastSyncDate = date
+        } else if let timestamp = defaults.object(forKey: "last_cloud_sync_timestamp") as? Double {
+            self.lastSyncDate = Date(timeIntervalSince1970: timestamp)
+        }
         loadAuditLog()
     }
     
@@ -389,7 +393,8 @@ final class CloudSyncManager: ObservableObject {
         guard !context.hasChanges else { throw CloudSyncError.unsavedChanges }
         let current = try inventory(context: context)
         var journal = try loadJournal()
-        for (name, type) in journal.knownRecords where current[name] == nil && !journal.restoredRecords.contains(name) {
+        for (name, type) in journal.knownRecords where current[name] == nil {
+            journal.restoredRecords.remove(name)
             journal.pendingDeletions[name] = type
             journal.tombstones[name] = type
         }
@@ -456,14 +461,21 @@ final class CloudSyncManager: ObservableObject {
 
     private func pullChanges(database: CKDatabase, context: ModelContext) async throws {
         var token = loadChangeToken()
-        var records: [CKRecord] = []
-        var deletions: [(recordID: CKRecord.ID, recordType: String)] = []
+        var modifiedByID: [CKRecord.ID: CKRecord] = [:]
+        var deletedByID: [CKRecord.ID: String] = [:]
         var more = true
         do {
             while more {
                 let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
-                for result in changes.modificationResultsByID.values { records.append(try result.get().record) }
-                deletions += changes.deletions.map { ($0.recordID, $0.recordType) }
+                for deletion in changes.deletions {
+                    modifiedByID.removeValue(forKey: deletion.recordID)
+                    deletedByID[deletion.recordID] = deletion.recordType
+                }
+                for result in changes.modificationResultsByID.values {
+                    let record = try result.get().record
+                    deletedByID.removeValue(forKey: record.recordID)
+                    modifiedByID[record.recordID] = record
+                }
                 token = changes.changeToken
                 more = changes.moreComing
             }
@@ -472,8 +484,25 @@ final class CloudSyncManager: ObservableObject {
             try await pullChanges(database: database, context: context)
             return
         }
+        // A device may already have skipped a recreated card while its deletion marker
+        // still existed. Marker removal must fetch the current record, even if its change
+        // was consumed in a previous pull, so an explicit restore reaches every device.
+        let restoredIDs = deletedByID.compactMap { id, type -> CKRecord.ID? in
+            guard type == deletionRecordType, id.recordName.hasPrefix("deleted-") else { return nil }
+            return CKRecord.ID(recordName: String(id.recordName.dropFirst("deleted-".count)), zoneID: zoneID)
+        }
+        for offset in stride(from: 0, to: restoredIDs.count, by: 100) {
+            let batch = Array(restoredIDs[offset..<min(offset + 100, restoredIDs.count)])
+            for (id, result) in try await database.records(for: batch) {
+                do {
+                    modifiedByID[id] = try result.get()
+                    deletedByID.removeValue(forKey: id)
+                } catch let error as CKError where error.code == .unknownItem { }
+            }
+        }
         // A review may precede its parent in a different page. Order only after all pages arrive.
-        try applyRemoteChanges(records: records, deletions: deletions, context: context)
+        try applyRemoteChanges(records: Array(modifiedByID.values),
+                               deletions: deletedByID.map { ($0.key, $0.value) }, context: context)
         if let token { try saveChangeToken(token) }
     }
 
@@ -482,6 +511,9 @@ final class CloudSyncManager: ObservableObject {
         guard !context.hasChanges else { throw CloudSyncError.unsavedChanges }
         var journal = try loadJournal()
         var index = try SyncRecordIndex(context: context)
+        let restoredRemoteNames = Set(deletions.filter { $0.recordType == deletionRecordType && $0.recordID.recordName.hasPrefix("deleted-") }
+            .map { String($0.recordID.recordName.dropFirst("deleted-".count)) })
+        let liveRemoteNames = Set(records.filter { $0.recordType != deletionRecordType }.map { $0.recordID.recordName })
         do {
             for deletion in deletions where deletion.recordType == deletionRecordType {
                 let name = String(deletion.recordID.recordName.dropFirst("deleted-".count))
@@ -496,11 +528,29 @@ final class CloudSyncManager: ObservableObject {
             }
             for deletion in deletions where deletion.recordType != deletionRecordType {
                 let name = deletion.recordID.recordName
-                if !journal.restoredRecords.contains(name) { journal.tombstones[name] = deletion.recordType }
+                if !journal.restoredRecords.contains(name) && !(restoredRemoteNames.contains(name) && liveRemoteNames.contains(name)) {
+                    journal.tombstones[name] = deletion.recordType
+                }
             }
             for record in records where record.recordType == cardRecordType {
                 if let deckID = record["deckID"] as? String, journal.tombstones["deck-" + deckID] != nil {
                     journal.tombstones[record.recordID.recordName] = cardRecordType
+                }
+            }
+            // Cascade tombstones as well as models. Otherwise a late review for a
+            // cascaded-away card would look like an unresolved parent and block the pull.
+            for (name, type) in Array(journal.tombstones) where type == deckRecordType {
+                guard let deckID = UUID(uuidString: String(name.dropFirst("deck-".count))) else { continue }
+                for cardID in index.cardIDsByDeck[deckID] ?? [] where journal.tombstones[cardID.uuidString] == nil {
+                    journal.tombstones[cardID.uuidString] = cardRecordType
+                    journal.pendingDeletions[cardID.uuidString] = cardRecordType
+                }
+            }
+            for (name, type) in Array(journal.tombstones) where type == cardRecordType {
+                guard let cardID = UUID(uuidString: name) else { continue }
+                for logID in index.logIDsByCard[cardID] ?? [] where journal.tombstones[logID.uuidString] == nil {
+                    journal.tombstones[logID.uuidString] = reviewRecordType
+                    journal.pendingDeletions[logID.uuidString] = reviewRecordType
                 }
             }
             for (name, type) in journal.tombstones {
@@ -527,36 +577,48 @@ final class CloudSyncManager: ObservableObject {
 
     private func deleteLocalRecord(name: String, type: String, context: ModelContext, index: inout SyncRecordIndex) throws {
         if type == deckRecordType, let id = UUID(uuidString: String(name.dropFirst("deck-".count))), let deck = index.decks.removeValue(forKey: id) {
-            let childCardIDs = Set(index.cards.values.filter { $0.deck?.id == id }.map(\.id))
-            for cardID in childCardIDs { index.cards.removeValue(forKey: cardID) }
-            index.logs = index.logs.filter { $0.value.card.map { !childCardIDs.contains($0.id) } ?? true }
+            let childCardIDs = index.cardIDsByDeck.removeValue(forKey: id) ?? []
+            for cardID in childCardIDs {
+                index.cards.removeValue(forKey: cardID)
+                for logID in index.logIDsByCard.removeValue(forKey: cardID) ?? [] { index.logs.removeValue(forKey: logID) }
+            }
             context.delete(deck)
         } else if let id = UUID(uuidString: name) {
             if type == cardRecordType, let card = index.cards.removeValue(forKey: id) {
-                index.logs = index.logs.filter { $0.value.card?.id != id }
+                for logID in index.logIDsByCard.removeValue(forKey: id) ?? [] { index.logs.removeValue(forKey: logID) }
+                if let deckID = card.deck?.id { index.cardIDsByDeck[deckID]?.remove(id) }
                 context.delete(card)
-            } else if type == reviewRecordType, let log = index.logs.removeValue(forKey: id) { context.delete(log) }
+            } else if type == reviewRecordType, let log = index.logs.removeValue(forKey: id) {
+                if let cardID = log.card?.id { index.logIDsByCard[cardID]?.remove(id) }
+                context.delete(log)
+            }
         }
     }
 
     private func pushLocalChanges(database: CKDatabase, context: ModelContext) async throws {
         var journal = try loadJournal()
         // Persistent cloud tombstones prevent an old device from recreating deleted data.
-        let deletionBatch = journal.pendingDeletions
-        for (name, type) in deletionBatch {
-            let tombstone = CKRecord(recordType: deletionRecordType, recordID: CKRecord.ID(recordName: "deleted-" + name, zoneID: zoneID))
-            tombstone["recordName"] = name as NSString
-            tombstone["entityType"] = type as NSString
-            let result = try await database.modifyRecords(saving: [tombstone], deleting: [CKRecord.ID(recordName: name, zoneID: zoneID)], savePolicy: .changedKeys, atomically: false)
+        let deletionBatch = journal.pendingDeletions.sorted { $0.key < $1.key }
+        for offset in stride(from: 0, to: deletionBatch.count, by: 100) {
+            let batch = Array(deletionBatch[offset..<min(offset + 100, deletionBatch.count)])
+            let tombstones = batch.map { entry -> CKRecord in
+                let record = CKRecord(recordType: deletionRecordType, recordID: CKRecord.ID(recordName: "deleted-" + entry.key, zoneID: zoneID))
+                record["recordName"] = entry.key as NSString
+                record["entityType"] = entry.value as NSString
+                return record
+            }
+            let result = try await database.modifyRecords(saving: tombstones,
+                deleting: batch.map { CKRecord.ID(recordName: $0.key, zoneID: zoneID) },
+                savePolicy: .changedKeys, atomically: false)
             for value in result.saveResults.values { _ = try value.get() }
             for value in result.deleteResults.values {
                 do { _ = try value.get() }
                 catch let error as CKError where error.code == .unknownItem { }
             }
+            journal = try loadJournal()
+            for entry in batch { journal.pendingDeletions.removeValue(forKey: entry.key) }
+            try saveJournal(journal)
         }
-        journal = try loadJournal()
-        for name in deletionBatch.keys { journal.pendingDeletions.removeValue(forKey: name) }
-        try saveJournal(journal)
 
         let decks = try context.fetch(FetchDescriptor<Deck>())
         let cards = try context.fetch(FetchDescriptor<Card>())
@@ -650,6 +712,8 @@ final class CloudSyncManager: ObservableObject {
             card = created
         }
         guard let card else { throw CloudSyncError.invalidRecord(record.recordID.recordName) }
+        if let oldDeckID = card.deck?.id { index.cardIDsByDeck[oldDeckID]?.remove(card.id) }
+        if let deck { index.cardIDsByDeck[deck.id, default: []].insert(card.id) }
         card.front = front
         card.back = record["back"] as? String ?? ""
         card.deck = deck
@@ -704,6 +768,7 @@ final class CloudSyncManager: ObservableObject {
                             cardStateAfter: record["cardStateAfter"] as? String ?? "learning")
         context.insert(log)
         index.logs[id] = log
+        if let card { index.logIDsByCard[card.id, default: []].insert(id) }
     }
 
     func record(for deck: Deck) -> CKRecord {

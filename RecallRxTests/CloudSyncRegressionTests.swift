@@ -11,7 +11,10 @@ final class CloudSyncRegressionTests: XCTestCase {
     }
 
     private func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "RecallRx.SyncTests.\(UUID().uuidString)")!
+        let suiteName = "RecallRx.SyncTests.\(UUID().uuidString)"
+        let store = UserDefaults(suiteName: suiteName)!
+        addTeardownBlock { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        return store
     }
 
     func testReviewArrivingBeforeCardIsAppliedAfterParentAndDeduplicated() throws {
@@ -120,4 +123,93 @@ final class CloudSyncRegressionTests: XCTestCase {
         XCTAssertTrue(restored.isSuspended)
         XCTAssertEqual(restored.deck?.newCardsPerDay, 7)
     }
+    func testOrphanedCardAndReviewRemainValidAcrossDevices() throws {
+        let source = try store()
+        let card = Card(front: "Unfiled", back: "Answer")
+        let orphanLog = ReviewLog(rating: 2)
+        source.mainContext.insert(card)
+        source.mainContext.insert(orphanLog)
+        try source.mainContext.save()
+        let sync = CloudSyncManager(defaults: defaults(), monitorNetwork: false)
+        let target = try store()
+        try sync.applyRemoteChanges(records: [sync.record(for: orphanLog), sync.record(for: card)], context: target.mainContext)
+        XCTAssertEqual(try target.mainContext.fetchCount(FetchDescriptor<Card>()), 1)
+        XCTAssertEqual(try target.mainContext.fetchCount(FetchDescriptor<ReviewLog>()), 1)
+        XCTAssertEqual(try target.mainContext.fetchCount(FetchDescriptor<Deck>()), 0)
+        XCTAssertNil(try target.mainContext.fetch(FetchDescriptor<ReviewLog>()).first?.card)
+    }
+
+    func testExplicitRestoreCanRevivePreviouslyDeletedIdentity() throws {
+        let container = try store()
+        let card = Card(front: "Restore me", back: "Answer")
+        let id = card.id
+        container.mainContext.insert(card)
+        try container.mainContext.save()
+        let sync = CloudSyncManager(defaults: defaults(), monitorNetwork: false)
+        try sync.captureLocalDeletions(context: container.mainContext)
+        container.mainContext.delete(card)
+        try container.mainContext.save()
+        try sync.captureLocalDeletions(context: container.mainContext)
+        container.mainContext.insert(Card(id: id, front: "Restored", back: "Answer"))
+        try container.mainContext.save()
+        try sync.markRestoredLibrary(context: container.mainContext)
+        let tombstone = CKRecord(recordType: "Deletion", recordID: CKRecord.ID(recordName: "deleted-" + id.uuidString))
+        tombstone["recordName"] = id.uuidString as NSString
+        tombstone["entityType"] = "Card" as NSString
+        try sync.applyRemoteChanges(records: [tombstone], context: container.mainContext)
+        XCTAssertEqual(try container.mainContext.fetchCount(FetchDescriptor<Card>()), 1)
+        XCTAssertEqual(try container.mainContext.fetch(FetchDescriptor<Card>()).first?.front, "Restored")
+    }
+
+    func testDeletingRestoredCardBeforeSyncCancelsRestorationIntent() throws {
+        let container = try store()
+        let card = Card(front: "Restored then deleted", back: "Answer")
+        container.mainContext.insert(card)
+        try container.mainContext.save()
+        let isolated = defaults()
+        let sync = CloudSyncManager(defaults: isolated, monitorNetwork: false)
+        try sync.markRestoredLibrary(context: container.mainContext)
+        let name = card.id.uuidString
+        container.mainContext.delete(card)
+        try container.mainContext.save()
+        try sync.captureLocalDeletions(context: container.mainContext)
+        let journal = try JSONDecoder().decode(SyncJournal.self, from: XCTUnwrap(isolated.data(forKey: "recallrx_sync_journal_v1")))
+        XCTAssertFalse(journal.restoredRecords.contains(name))
+        XCTAssertEqual(journal.pendingDeletions[name], "Card")
+        XCTAssertEqual(journal.tombstones[name], "Card")
+    }
+
+    func testRestorationWinsOverEarlierDeletionInTheSamePulledBatch() throws {
+        let container = try store()
+        let id = UUID()
+        let record = CKRecord(recordType: "Card", recordID: CKRecord.ID(recordName: id.uuidString))
+        record["version"] = 2 as NSNumber
+        record["front"] = "Restored on another device" as NSString
+        let markerID = CKRecord.ID(recordName: "deleted-" + id.uuidString)
+        let sync = CloudSyncManager(defaults: defaults(), monitorNetwork: false)
+        try sync.applyRemoteChanges(records: [record],
+            deletions: [(CKRecord.ID(recordName: id.uuidString), "Card"), (markerID, "Deletion")],
+            context: container.mainContext)
+        XCTAssertEqual(try container.mainContext.fetchCount(FetchDescriptor<Card>()), 1)
+    }
+
+    func testDeckDeletionSuppressesLateReviewForCascadedCard() throws {
+        let container = try store()
+        let deck = Deck(name: "Deleted deck")
+        let card = Card(front: "Q", back: "A", deck: deck)
+        container.mainContext.insert(deck)
+        container.mainContext.insert(card)
+        try container.mainContext.save()
+        let marker = CKRecord(recordType: "Deletion", recordID: CKRecord.ID(recordName: "deleted-deck-" + deck.id.uuidString))
+        marker["recordName"] = ("deck-" + deck.id.uuidString) as NSString
+        marker["entityType"] = "Deck" as NSString
+        let lateReview = CKRecord(recordType: "ReviewLog", recordID: CKRecord.ID(recordName: UUID().uuidString))
+        lateReview["cardID"] = card.id.uuidString as NSString
+        let sync = CloudSyncManager(defaults: defaults(), monitorNetwork: false)
+        try sync.applyRemoteChanges(records: [lateReview, marker], context: container.mainContext)
+        XCTAssertEqual(try container.mainContext.fetchCount(FetchDescriptor<Deck>()), 0)
+        XCTAssertEqual(try container.mainContext.fetchCount(FetchDescriptor<Card>()), 0)
+        XCTAssertEqual(try container.mainContext.fetchCount(FetchDescriptor<ReviewLog>()), 0)
+    }
+
 }

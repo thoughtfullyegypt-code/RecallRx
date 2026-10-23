@@ -31,7 +31,7 @@ final class RecallRxTests: XCTestCase {
             ),
             widgetManager: WidgetDataManager(defaults: defaults, sideEffectsEnabled: false),
             notificationManager: NotificationManager(defaults: defaults, sideEffectsEnabled: false),
-            cloudSyncManager: CloudSyncManager(defaults: defaults)
+            cloudSyncManager: CloudSyncManager(defaults: defaults, monitorNetwork: false)
         )
         let report = runner.runAllTests(modelContext: container.mainContext)
         XCTAssertFalse(report.isEmpty)
