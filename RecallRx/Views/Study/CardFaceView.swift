@@ -419,6 +419,8 @@ struct CardFaceView: View {
     
     @ViewBuilder
     private func expandedSectionBox(_ section: MedicalSection, text: String) -> some View {
+        let backgroundColor: Color = section.color.opacity(0.08)
+        let borderColor: Color = section.color.opacity(0.25)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label(section.rawValue, systemImage: section.icon)
@@ -449,10 +451,10 @@ struct CardFaceView: View {
             }
         }
         .padding(14)
-        .background(section.color.opacity(0.08))
+        .background(backgroundColor)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(section.color.opacity(0.25), lineWidth: 1)
+                .stroke(borderColor, lineWidth: 1)
         )
         .cornerRadius(12)
         .transition(.opacity)
