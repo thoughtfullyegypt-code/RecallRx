@@ -147,6 +147,8 @@ final class Scheduler {
         // Finish unrelated pending edits before opening the undo transaction, so a
         // failed undo rollback cannot discard another screen's unsaved changes.
         do { try save(context) } catch { return false }
+        let reviewedState = ReviewUndoSnapshot.capture(card)
+        let reviewedLogs = card.reviewLogs
         snapshot.restore(onto: card)
         card.modifiedAt = now
         card.reviewLogs.removeAll { $0.id == lastLog.id }
@@ -157,8 +159,17 @@ final class Scheduler {
             ReviewUndoStore.remove(id: lastLog.id, persist: shouldPersistUndo(in: context))
             return true
         } catch {
-            // A failed transactional save must not report a successful undo.
+            // SwiftData rollback cancels the pending store transaction, but does
+            // not reliably refresh already-observed model properties or inverse
+            // relationships. Restore the live graph too, leaving the undo
+            // snapshot available for a retry.
             context.rollback()
+            reviewedState.restore(onto: card)
+            if lastLog.isDeleted || lastLog.modelContext == nil {
+                context.insert(lastLog)
+            }
+            card.reviewLogs = reviewedLogs
+            for log in reviewedLogs { log.card = card }
             return false
         }
     }

@@ -65,6 +65,62 @@ final class CloudSyncRegressionTests: XCTestCase {
         XCTAssertNil(isolated.data(forKey: "recallrx_sync_journal_v1"))
     }
 
+    func testFailedRemoteUpdatePreservesLatestSavedModelsAndJournal() throws {
+        enum Failure: Error { case diskFull }
+        let container = try store()
+        let context = container.mainContext
+        let deck = Deck(name: "Seed deck", newCardsPerDay: 1)
+        let card = Card(front: "Seed prompt", back: "Seed answer", deck: deck, interval: 1)
+        context.insert(deck)
+        context.insert(card)
+        try context.save()
+
+        let savedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        deck.name = "Original deck"
+        deck.newCardsPerDay = 7
+        deck.modifiedAt = savedDate
+        card.front = "Original prompt"
+        card.back = "Original answer"
+        card.interval = 12
+        card.modifiedAt = savedDate
+        try context.save()
+
+        let isolated = defaults()
+        let sync = CloudSyncManager(defaults: isolated, monitorNetwork: false, persistChanges: { _ in throw Failure.diskFull })
+        try sync.captureLocalDeletions(context: context)
+        let originalJournal = try XCTUnwrap(isolated.data(forKey: "recallrx_sync_journal_v1"))
+        let remoteDeck = sync.record(for: deck)
+        remoteDeck["name"] = "Remote deck" as NSString
+        remoteDeck["newCardsPerDay"] = 99 as NSNumber
+        remoteDeck["modifiedAt"] = savedDate.addingTimeInterval(60) as NSDate
+        let remoteCard = sync.record(for: card)
+        remoteCard["front"] = "Remote prompt" as NSString
+        remoteCard["back"] = "Remote answer" as NSString
+        remoteCard["interval"] = 99 as NSNumber
+        remoteCard["modifiedAt"] = savedDate.addingTimeInterval(60) as NSDate
+
+        XCTAssertThrowsError(try sync.applyRemoteChanges(records: [remoteCard, remoteDeck], context: context))
+
+        func assertOriginalValues(card: Card, deck: Deck, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(deck.name, "Original deck", file: file, line: line)
+            XCTAssertEqual(deck.newCardsPerDay, 7, file: file, line: line)
+            XCTAssertEqual(deck.modifiedAt, savedDate, file: file, line: line)
+            XCTAssertEqual(card.front, "Original prompt", file: file, line: line)
+            XCTAssertEqual(card.back, "Original answer", file: file, line: line)
+            XCTAssertEqual(card.interval, 12, file: file, line: line)
+            XCTAssertEqual(card.modifiedAt, savedDate, file: file, line: line)
+            XCTAssertEqual(card.deck?.id, deck.id, file: file, line: line)
+        }
+        assertOriginalValues(card: card, deck: deck)
+        assertOriginalValues(card: try XCTUnwrap(context.fetch(FetchDescriptor<Card>()).first),
+                             deck: try XCTUnwrap(context.fetch(FetchDescriptor<Deck>()).first))
+        let freshContext = ModelContext(container)
+        assertOriginalValues(card: try XCTUnwrap(freshContext.fetch(FetchDescriptor<Card>()).first),
+                             deck: try XCTUnwrap(freshContext.fetch(FetchDescriptor<Deck>()).first))
+        XCTAssertFalse(context.hasChanges)
+        XCTAssertEqual(isolated.data(forKey: "recallrx_sync_journal_v1"), originalJournal)
+    }
+
     func testOfflineDeletionSurvivesManagerRestartAndSuppressesStaleRemoteCard() throws {
         let container = try store()
         let deck = Deck(name: "Deck")

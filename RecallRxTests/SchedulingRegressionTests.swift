@@ -200,6 +200,8 @@ final class SchedulingRegressionTests: XCTestCase {
         let card = fixture.card("Undo")
         XCTAssertTrue(Scheduler.applyReview(card: card, rating: .easy, timeTakenMs: 1, context: fixture.context, now: fixture.now, defaults: fixture.defaults))
         let savedDue = card.dueDate
+        let cardID = card.id
+        let savedLogID = try XCTUnwrap(card.reviewLogs.first?.id)
         var saves = 0
         let undone = Scheduler.undoLastReview(card: card, context: fixture.context, now: fixture.now, save: { context in
             saves += 1
@@ -210,9 +212,21 @@ final class SchedulingRegressionTests: XCTestCase {
         XCTAssertEqual(card.state, .review)
         XCTAssertEqual(card.dueDate, savedDue)
         XCTAssertEqual(card.reviewLogs.count, 1)
+        XCTAssertEqual(card.reviewLogs.first?.id, savedLogID)
+        let verificationContext = ModelContext(fixture.container)
+        let persisted = try XCTUnwrap(verificationContext.fetch(FetchDescriptor<Card>(predicate: #Predicate { $0.id == cardID })).first)
+        XCTAssertEqual(persisted.state, .review)
+        XCTAssertEqual(persisted.dueDate, savedDue)
+        XCTAssertEqual(persisted.reviewLogs.map(\.id), [savedLogID])
+        XCTAssertEqual(try verificationContext.fetchCount(FetchDescriptor<ReviewLog>()), 1)
         XCTAssertTrue(Scheduler.undoLastReview(card: card, context: fixture.context, now: fixture.now))
         XCTAssertEqual(card.state, .new)
         XCTAssertTrue(card.reviewLogs.isEmpty)
+        let retryVerificationContext = ModelContext(fixture.container)
+        let persistedAfterRetry = try XCTUnwrap(retryVerificationContext.fetch(FetchDescriptor<Card>(predicate: #Predicate { $0.id == cardID })).first)
+        XCTAssertEqual(persistedAfterRetry.state, .new)
+        XCTAssertTrue(persistedAfterRetry.reviewLogs.isEmpty)
+        XCTAssertEqual(try retryVerificationContext.fetchCount(FetchDescriptor<ReviewLog>()), 0)
     }
 
     @MainActor

@@ -184,17 +184,18 @@ final class TestRunner {
     // MARK: - Test 3: SM-2 Algorithm
     private func testSM2Algorithm() {
         let dummyCard = Card(front: "Front", back: "Back", noteType: .basic, state: .new)
+        let parameters = SM2SchedulingParameters()
         
         // New card rating Again
-        let againRes = SM2Algorithm.review(card: dummyCard, rating: .again)
+        let againRes = SM2Algorithm.review(card: dummyCard, rating: .again, parameters: parameters)
         let againValid = againRes.newState == .learning && againRes.newLearningStep == 0
         
         // New card rating Good
-        let goodRes = SM2Algorithm.review(card: dummyCard, rating: .good)
+        let goodRes = SM2Algorithm.review(card: dummyCard, rating: .good, parameters: parameters)
         let goodValid = goodRes.newState == .learning && goodRes.newLearningStep == 1
         
         // New card rating Easy
-        let easyRes = SM2Algorithm.review(card: dummyCard, rating: .easy)
+        let easyRes = SM2Algorithm.review(card: dummyCard, rating: .easy, parameters: parameters)
         let easyValid = easyRes.newState == .review && easyRes.newInterval >= 4.0
         
         // Interval formatting test
@@ -212,7 +213,7 @@ final class TestRunner {
         )
     }
     
-    // MARK: - Test 4: FSRS-5 Algorithm
+    // MARK: - Test 4: FSRS-6 Algorithm
     private func testFSRSAlgorithm() {
         let card = Card(front: "FSRS Question", back: "FSRS Answer", noteType: .basic, state: .new)
         var params = FSRSAlgorithm.Parameters.default
@@ -227,12 +228,17 @@ final class TestRunner {
         let initialStabilitiesValid = resAgain.newStability < resHard.newStability &&
                                       resHard.newStability < resGood.newStability &&
                                       resGood.newStability < resEasy.newStability
+        let learningStepsValid = resAgain.newState == .learning && resAgain.newLearningStep == 0
+            && resHard.newState == .learning
+            && resGood.newState == .learning && resGood.newLearningStep == 1
+            && abs(resGood.newInterval * 86400 - 600) < 0.000001
+            && resEasy.newState == .review
         
         // 2. Retrievability power decay test
         let s = 10.0
         let r0 = FSRSAlgorithm.retrievability(stability: s, elapsedDays: 0.0)
         let r10 = FSRSAlgorithm.retrievability(stability: s, elapsedDays: 10.0)
-        let retrievabilityValid = abs(r0 - 1.0) < 0.001 && abs(r10 - 0.90) < 0.02
+        let retrievabilityValid = abs(r0 - 1.0) < 0.000000001 && abs(r10 - 0.90) < 0.000000001
         
         // 3. Target retention interval sensitivity
         let interval90 = FSRSAlgorithm.intervalForTargetRetention(stability: 20.0, targetRetention: 0.90)
@@ -244,11 +250,11 @@ final class TestRunner {
         let recallS = FSRSAlgorithm.nextRecallStability(currentD: 5.0, currentS: 10.0, r: 0.90, grade: 3, parameters: params)
         let growthValid = recallS > 10.0
         
-        let passed = initialStabilitiesValid && retrievabilityValid && sensitivityValid && growthValid
+        let passed = initialStabilitiesValid && learningStepsValid && retrievabilityValid && sensitivityValid && growthValid
         record(
             name: "FSRS-6 Algorithm",
             passed: passed,
-            details: passed ? "Validated DSR memory model: S0 scaling, power decay R(t), retention sensitivity (85% > 90% > 95%), and stability growth." : "FSRS calculation mismatch."
+            details: passed ? "Validated FSRS-6 initial stability ordering, timed learning steps before graduation, R(S) = 90%, retention sensitivity, and recall stability growth." : "FSRS calculation mismatch: initial=\(initialStabilitiesValid), steps=\(learningStepsValid), curve=\(retrievabilityValid), retention=\(sensitivityValid), growth=\(growthValid)."
         )
     }
     
@@ -261,28 +267,32 @@ final class TestRunner {
         context.insert(card)
         try? context.save()
         
-        // Review card
-        Scheduler.applyReview(card: card, rating: .good, timeTakenMs: 1500, context: context, defaults: defaults)
-        guard card.reviewLogs.count == 1, (card.state == .learning || card.state == .review) else {
+        // A first Good answer remains in learning; it must not graduate immediately.
+        let reviewedAt = Date()
+        let originalDueDate = card.dueDate
+        let saved = Scheduler.applyReview(card: card, rating: .good, timeTakenMs: 1500, context: context, now: reviewedAt, defaults: defaults)
+        guard saved, card.reviewLogs.count == 1, card.state == .learning,
+              card.dueDate > reviewedAt else {
             record(name: "Scheduler & Undo", passed: false, details: "Review log was not created or state transition invalid")
             return
         }
         
         // Undo review
         let undone = Scheduler.undoLastReview(card: card, context: context)
-        guard undone, card.reviewLogs.isEmpty, card.state == .new else {
+        guard undone, card.reviewLogs.isEmpty, card.state == .new, card.dueDate == originalDueDate,
+              card.fsrsStability == 0, card.fsrsDifficulty == 0 else {
             record(name: "Scheduler & Undo", passed: false, details: "Undo review failed to restore previous state")
             return
         }
         
         // Bury and unbury
         Scheduler.buryCard(card)
-        guard card.isBuried else {
+        guard card.isBuried, let expiry = card.buriedUntil, expiry > reviewedAt else {
             record(name: "Scheduler & Undo", passed: false, details: "Bury card failed")
             return
         }
         Scheduler.unburyCard(card)
-        guard !card.isBuried else {
+        guard !card.isBuried, card.buriedUntil == nil else {
             record(name: "Scheduler & Undo", passed: false, details: "Unbury card failed")
             return
         }
@@ -313,7 +323,31 @@ final class TestRunner {
     
     // MARK: - Test 6: QBank Fast-Unsuspend Tool
     private func testQBankFastUnsuspend(context: ModelContext) {
+        let deck = Deck(name: "QBank smoke fixture")
+        context.insert(deck)
+        let uworldFirst = Card(front: "First question", back: "Answer", deck: deck,
+                               tags: ["#UWorld::QID_1052"], isSuspended: true)
+        let uworldSecond = Card(front: "Second question", back: "Answer", deck: deck,
+                                tags: ["#UWorld::QID_2048"], isSuspended: true)
+        let amboss = Card(front: "Another source", back: "Answer", deck: deck,
+                          tags: ["#AMBOSS::QID_15302"], isSuspended: true)
+        let nearMatch = Card(front: "A different question", back: "Answer", deck: deck,
+                             tags: ["#UWorld::QID_10520"], isSuspended: true)
+        let fixtures = [uworldFirst, uworldSecond, amboss, nearMatch]
+        for card in fixtures { context.insert(card) }
+        deck.cards = fixtures
+        defer {
+            context.delete(deck)
+            try? context.save()
+        }
+        do {
+            try context.save()
+        } catch {
+            record(name: "QBank Fast-Unsuspend", passed: false, details: "Could not save the QBank fixture: \(error.localizedDescription)")
+            return
+        }
         let vm = QBankViewModel(modelContext: context)
+        vm.selectedDeck = deck
         
         // 1. Parsing messy inputs
         vm.rawInput = "QID_1052, 2048; qid:15302 \n 1894, 2190"
@@ -326,65 +360,96 @@ final class TestRunner {
         
         // 2. Search
         vm.searchQIDs()
-        let matchCount = vm.matchResults.filter { $0.isFound }.count
-        guard matchCount > 0 else {
-            record(name: "QBank Fast-Unsuspend (Feature 1)", passed: false, details: "No matching cards found for sample QIDs")
+        let expectedIDs = Set([uworldFirst.id, uworldSecond.id, amboss.id])
+        let matchedIDs = Set(vm.allMatchedCards.map(\.id))
+        guard matchedIDs == expectedIDs,
+              vm.matchResults.first(where: { $0.qid == "1052" })?.cards.map(\.id) == [uworldFirst.id],
+              vm.matchResults.first(where: { $0.qid == "2048" })?.cards.map(\.id) == [uworldSecond.id],
+              vm.matchResults.first(where: { $0.qid == "15302" })?.cards.map(\.id) == [amboss.id],
+              vm.matchResults.filter({ ["1894", "2190"].contains($0.qid) }).allSatisfy({ !$0.isFound }) else {
+            record(name: "QBank Fast-Unsuspend (Feature 1)", passed: false, details: "Question-ID matches did not preserve exact identifiers or excluded unknown IDs")
             return
         }
+
+        vm.selectedSource = .uworld
+        vm.searchQIDs()
+        guard Set(vm.allMatchedCards.map(\.id)) == Set([uworldFirst.id, uworldSecond.id]) else {
+            record(name: "QBank Fast-Unsuspend (Feature 1)", passed: false, details: "Source filtering included another question bank")
+            return
+        }
+        vm.selectedSource = .all
+        vm.searchQIDs()
         
         // 3. Unsuspend all matched
         vm.unsuspendAll()
         let suspendedAfter = vm.totalSuspendedMatchedCount
-        guard suspendedAfter == 0 else {
+        guard suspendedAfter == 0, nearMatch.isSuspended else {
             record(name: "QBank Fast-Unsuspend (Feature 1)", passed: false, details: "Failed to unsuspend all matching cards")
             return
         }
         
         // 4. Suspend all matched
         vm.suspendAll()
-        guard vm.totalSuspendedMatchedCount == vm.totalMatchedCount else {
+        guard vm.totalSuspendedMatchedCount == expectedIDs.count,
+              vm.totalMatchedCount == expectedIDs.count, nearMatch.isSuspended else {
             record(name: "QBank Fast-Unsuspend (Feature 1)", passed: false, details: "Failed to suspend all matching cards")
             return
         }
         
-        // 5. Restore previous suspended state for sample cards
-        vm.unsuspendAll()
-        
         record(
             name: "QBank Fast-Unsuspend Tool (Feature 1)",
             passed: true,
-            details: "Parsed messy input tokens, queried matching UWorld/AMBOSS cards, executed bulk unsuspend and suspend actions."
+            details: "Parsed messy input, matched exact fixture IDs and sources, and changed suspension only for matched cards."
         )
     }
     
     // MARK: - Test 7: Hierarchical Tag Explorer
     private func testHierarchicalTagExplorer(context: ModelContext) {
-        let vm = HierarchicalTagViewModel(modelContext: context)
-        let rootCount = vm.rootNodes.count
-        guard rootCount > 0 else {
-            record(name: "Hierarchical Tag Explorer (Feature 3)", passed: false, details: "No root tag nodes generated")
+        let deck = Deck(name: "Tag hierarchy smoke fixture")
+        context.insert(deck)
+        let first = Card(front: "Arrhythmia", back: "Answer", deck: deck,
+                         tags: ["MedicineSmoke::Cardiology::Arrhythmias", "MedicineSmoke::Cardiology::ECG"], isSuspended: true)
+        let second = Card(front: "Valve", back: "Answer", deck: deck,
+                          tags: ["MedicineSmoke::Cardiology::Valves"])
+        let third = Card(front: "Movement", back: "Answer", deck: deck,
+                         tags: ["MedicineSmoke::Neurology::Movement"])
+        let fixtures = [first, second, third]
+        for card in fixtures { context.insert(card) }
+        deck.cards = fixtures
+        defer {
+            context.delete(deck)
+            try? context.save()
+        }
+        do {
+            try context.save()
+        } catch {
+            record(name: "Hierarchical Tag Explorer", passed: false, details: "Could not save the tag fixture: \(error.localizedDescription)")
             return
         }
-        
-        // Verify #AK_Step1_v12 exists
-        let akNode = vm.rootNodes.first { $0.name.contains("AK_Step1") }
-        guard let ak = akNode, !ak.children.isEmpty else {
-            record(name: "Hierarchical Tag Explorer (Feature 3)", passed: false, details: "Failed to build a multi-level :: tree")
+        let vm = HierarchicalTagViewModel(modelContext: context)
+        guard let root = vm.rootNodes.first(where: { $0.fullPath == "MedicineSmoke" }),
+              let cardiology = root.children.first(where: { $0.name == "Cardiology" }),
+              let arrhythmias = cardiology.children.first(where: { $0.name == "Arrhythmias" }),
+              root.totalCardsCount == 3, root.suspendedCardsCount == 1,
+              cardiology.totalCardsCount == 2, cardiology.suspendedCardsCount == 1,
+              Set(vm.getCards(for: arrhythmias).map(\.id)) == Set([first.id]) else {
+            record(name: "Hierarchical Tag Explorer (Feature 3)", passed: false, details: "Hierarchy or unique-card aggregation did not match the explicit tag fixture")
             return
         }
         
         // Test expand/collapse
-        vm.expandedNodeIDs.insert(ak.id)
-        let isExpanded = vm.expandedNodeIDs.contains(ak.id)
-        vm.expandedNodeIDs.remove(ak.id)
+        vm.expandedNodeIDs.insert(root.id)
+        let isExpanded = vm.expandedNodeIDs.contains(root.id)
+        vm.expandedNodeIDs.remove(root.id)
         
         // Test search filter
-        vm.searchText = "Cardio"
-        let filteredRoots = vm.rootNodes
-        let searchFound = !filteredRoots.isEmpty
+        vm.searchText = "Cardiology"
+        let searchFound = vm.filteredRoots.contains(where: { $0.id == root.id })
+        vm.searchText = "NoSuchFixtureBranch"
+        let unrelatedSearchIsEmpty = vm.filteredRoots.isEmpty
         vm.searchText = "" // reset
         
-        let passed = isExpanded && searchFound && ak.totalCardsCount > 0
+        let passed = isExpanded && searchFound && unrelatedSearchIsEmpty
         record(
             name: "Hierarchical Tag Explorer (Feature 3)",
             passed: passed,
@@ -586,7 +651,7 @@ final class TestRunner {
         ]
         
         let initialLoss = FSRSOptimizer.evaluateLoss(weights: defaultWeights, sequences: testSequences)
-        guard initialLoss > 0.0 && !initialLoss.isNaN else {
+        guard initialLoss > 0.0 && initialLoss.isFinite else {
             record(name: "On-Device FSRS Weight Personalization (Improvement #5)", passed: false, details: "Initial binary cross-entropy loss calculation failed")
             return
         }
@@ -612,7 +677,7 @@ final class TestRunner {
         record(
             name: "On-Device FSRS Weight Personalization (Improvement #5)",
             passed: passed,
-            details: passed ? "Validated log-loss binary cross entropy computation, Adam parameter calibration, and Scheduler custom weight lifecycle." : "FSRS optimization lifecycle validation failed."
+            details: passed ? "Validated finite binary cross-entropy loss and isolated Scheduler custom-weight load/reset. This smoke check evaluates explicit samples; it does not train or persist synthetic review history." : "FSRS loss or custom-weight lifecycle validation failed."
         )
     }
     
@@ -909,14 +974,27 @@ final class TestRunner {
         // 1. FSRS-6 21-Parameter Verification
         let defaultW = FSRSAlgorithm.Parameters.default.w
         let fsrsWeightsCountValid = defaultW.count == 21
-        let w19Valid = defaultW.count == 21 && abs(defaultW[19] - 0.2345679) < 0.001
-        let w20Valid = defaultW.count == 21 && defaultW[20] == -0.5
-        
-        let retrievability = FSRSAlgorithm.retrievability(stability: 10.0, elapsedDays: 5.0)
-        let rValid = retrievability > 0.85 && retrievability < 0.99
+        let shortTermPowerValid = fsrsWeightsCountValid && defaultW[19].isFinite && defaultW[19] > 0
+        let curve = FSRSAlgorithm.curve(parameters: .default)
+        let positiveDecayValid = fsrsWeightsCountValid && defaultW[20].isFinite && defaultW[20] > 0
+            && !curve.legacyNegativeDecay && abs(curve.decay - defaultW[20]) < 0.000000001
+
+        // Stability is defined by 90% retrievability at elapsed time S; the
+        // curve must decrease monotonically without depending on one weight vector.
+        let earlyRecall = FSRSAlgorithm.retrievability(stability: 10.0, elapsedDays: 5.0)
+        let atStability = FSRSAlgorithm.retrievability(stability: 10.0, elapsedDays: 10.0)
+        let lateRecall = FSRSAlgorithm.retrievability(stability: 10.0, elapsedDays: 20.0)
+        let rValid = abs(atStability - 0.90) < 0.000000001
+            && earlyRecall > atStability && earlyRecall < 1
+            && lateRecall > 0 && lateRecall < atStability
         let interval = FSRSAlgorithm.intervalForTargetRetention(stability: 10.0, targetRetention: 0.90)
-        let intervalValid = interval > 5 && interval < 15
-        let fsrs6Valid = fsrsWeightsCountValid && w19Valid && w20Valid && rValid && intervalValid
+        let intervalValid = abs(interval - 10) < 0.000000001
+        let sameDayValid = [2, 3, 4].allSatisfy { grade in
+            let next = FSRSAlgorithm.nextShortTermStability(currentS: 10, grade: grade, parameters: .default)
+            return next.isFinite && next >= 10
+        }
+        let fsrs6Valid = fsrsWeightsCountValid && shortTermPowerValid && positiveDecayValid
+            && rValid && intervalValid && sameDayValid
         
         // 2. AI Card Generator (Offline / On-Device PDF & Slide Notes)
         let lectureNotes = """
@@ -1050,8 +1128,8 @@ final class TestRunner {
             name: "FSRS-6, AI PDF Synthesis, Clean Backup Restore & Widgets",
             passed: passed,
             details: passed
-                ? "Verified FSRS-6 21-parameter formula parity, on-device AI PDF concept extraction (>=4 cards), clean database wipe & snapshot restore with 100% review log and FSRS stability fidelity, and iOS 17 WidgetKit data sync."
-                : "Failed flags: fsrs6=\(fsrs6Valid) (count=\(defaultW.count)), pdfGen=\(pdfGenValid) (cards=\(generatedCards.count)), restore=\(restoreValid), widget=\(widgetValid)"
+                ? "Verified FSRS-6 positive decay, R(S) = 90%, monotonic recall and same-day stability invariants; PDF concept extraction; clean backup restoration of review logs and stability; and widget data sync."
+                : "Failed flags: fsrs6=\(fsrs6Valid) (count=\(defaultW.count), power=\(shortTermPowerValid), decay=\(positiveDecayValid), curve=\(rValid), interval=\(intervalValid), sameDay=\(sameDayValid)), pdfGen=\(pdfGenValid) (cards=\(generatedCards.count)), restore=\(restoreValid), widget=\(widgetValid)"
         )
     }
     
