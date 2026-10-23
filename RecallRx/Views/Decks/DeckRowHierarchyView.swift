@@ -126,9 +126,9 @@ struct DeckRowHierarchyView: View {
     private func toggleExpanded() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
             if expandedDeckIDs.contains(deck.id) {
-                expandedDeckIDs.remove(deck.id)
+                _ = expandedDeckIDs.remove(deck.id)
             } else {
-                expandedDeckIDs.insert(deck.id)
+                _ = expandedDeckIDs.insert(deck.id)
             }
         }
     }

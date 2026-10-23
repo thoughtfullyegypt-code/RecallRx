@@ -164,9 +164,9 @@ private struct TagTreeNodeRow: View {
                     Button {
                         withAnimation(.spring(response: 0.25)) {
                             if isExpanded {
-                                expandedNodeIDs.remove(node.id)
+                                _ = expandedNodeIDs.remove(node.id)
                             } else {
-                                expandedNodeIDs.insert(node.id)
+                                _ = expandedNodeIDs.insert(node.id)
                             }
                         }
                     } label: {

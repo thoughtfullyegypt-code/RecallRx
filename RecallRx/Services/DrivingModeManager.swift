@@ -6,7 +6,7 @@ import MediaPlayer
 import SwiftData
 
 /// Recorded Card Review During Driving Session (Used for Parked Review Audit)
-struct DriveCardReviewRecord: Identifiable, Sendable {
+struct DriveCardReviewRecord: Identifiable {
     let id = UUID()
     let card: Card
     let question: String
