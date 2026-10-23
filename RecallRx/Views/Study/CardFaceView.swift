@@ -25,12 +25,14 @@ enum MedicalSection: String, CaseIterable, Identifiable {
         case .firstAid: return .blue
         case .sketchy: return .orange
         case .pathoma: return .purple
-        case .pearls: return .yellow
+        case .pearls: return .orange
         }
     }
 }
 
 struct CardFaceView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let content: String
     let isFront: Bool
     let noteType: NoteType
@@ -49,42 +51,34 @@ struct CardFaceView: View {
         self.card = card
     }
     
-    public var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 16) {
-                // Interactive Cloze helper bar (if multiple clozes and on front)
-                if isFront && isClozeType && clozeMatchesCount > 1 {
-                    clozeOneByOneBar
-                }
-                
-                Spacer(minLength: 16)
-                
-                // Main Question/Answer Prompt
-                renderedPromptView
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                
-                // Feature 2: Collapsible Medical Resource Sections (on Back)
-                if !isFront, let card = card, card.hasMedicalResources {
-                    medicalResourcesView(card: card)
-                }
-                
-                Spacer(minLength: 16)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Label(isFront ? "Question" : "Answer", systemImage: isFront ? "questionmark.circle" : "lightbulb")
+                .font(.subheadline.bold())
+                .foregroundStyle(isFront ? Color.secondary : AppTheme.accent)
+                .accessibilityAddTraits(.isHeader)
+
+            if isFront && isClozeType && clozeMatchesCount > 1 {
+                clozeOneByOneBar
             }
-            .frame(maxWidth: .infinity, minHeight: 280)
-            .padding(.vertical, 16)
+
+            renderedPromptView
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !isFront, let card, card.hasMedicalResources {
+                medicalResourcesView(card: card)
+            }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
-                .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 5)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(Color(.separator).opacity(0.25), lineWidth: 1)
-                )
-        )
+        .padding(20)
+        .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppTheme.cornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppTheme.cornerRadius)
+                .strokeBorder(AppTheme.border, lineWidth: 1)
+        }
     }
-    
+
     private var isClozeType: Bool {
         noteType == .cloze || noteType == .medical
     }
@@ -124,7 +118,7 @@ struct CardFaceView: View {
             VStack(spacing: 12) {
                 Text(p.title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 ZStack {
                     MedicalDiagramCanvasView(diagramId: p.diagramId)
@@ -151,18 +145,18 @@ struct CardFaceView: View {
                                 if isActive && isFront {
                                     Text("?")
                                         .font(.system(size: 14, weight: .black))
-                                        .foregroundColor(.white)
+                                        .foregroundStyle(.white)
                                 } else if isActive && !isFront {
                                     Text(mask.label)
                                         .font(.system(size: 10, weight: .bold))
-                                        .foregroundColor(.white)
+                                        .foregroundStyle(.white)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.7)
                                         .padding(.horizontal, 4)
                                 } else if shouldHide {
                                     Text("[\(mask.id)]")
                                         .font(.system(size: 9, weight: .bold))
-                                        .foregroundColor(.white.opacity(0.8))
+                                        .foregroundStyle(.white.opacity(0.8))
                                 }
                             }
                             .frame(
@@ -178,17 +172,19 @@ struct CardFaceView: View {
                 }
                 .frame(height: 220)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(isFront ? "Study diagram. Identify the highlighted hidden label." : "Study diagram. Revealed label: \(p.masks.first(where: { $0.id == p.activeMaskId })?.label ?? "Unavailable")")
                 
                 if !isFront, let activeMask = p.masks.first(where: { $0.id == p.activeMaskId }) {
                     VStack(spacing: 4) {
                         Text(activeMask.label)
                             .font(.title3.weight(.bold))
-                            .foregroundColor(.primary)
+                            .foregroundStyle(.primary)
                         
                         if let hint = activeMask.hint, !hint.isEmpty {
                             Text(hint)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(.top, 4)
@@ -245,42 +241,32 @@ struct CardFaceView: View {
     
     // Feature 4: Interactive One-by-One Toolbar
     private var clozeOneByOneBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "hand.tap.fill")
-                .font(.caption2)
-                .foregroundColor(.blue)
-            Text("Tap [...] to reveal individually")
-                .font(.caption2.weight(.medium))
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            if !revealedClozeIndices.isEmpty {
-                Button("Hide All") {
-                    withAnimation(.spring(response: 0.3)) {
-                        revealedClozeIndices.removeAll()
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Tap a blank to reveal it individually.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                if !revealedClozeIndices.isEmpty {
+                    Button("Hide all") {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                            revealedClozeIndices.removeAll()
+                        }
+                    }
+                    .frame(minHeight: 44)
+                }
+                Button("Reveal all") {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        for item in parsedClozeItems {
+                            revealedClozeIndices.insert(item.id)
+                        }
                     }
                 }
-                .font(.caption2.weight(.semibold))
-                .foregroundColor(.red)
+                .frame(minHeight: 44)
             }
-            
-            Button("Reveal All") {
-                withAnimation(.spring(response: 0.3)) {
-                    for item in parsedClozeItems {
-                        revealedClozeIndices.insert(item.id)
-                    }
-                }
-            }
-            .font(.caption2.weight(.semibold))
-            .foregroundColor(.blue)
+            .buttonStyle(.bordered)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(Capsule().fill(Color.blue.opacity(0.08)))
-        .padding(.horizontal, 20)
     }
-    
+
     @ViewBuilder
     private var interactiveClozeView: some View {
         // Build view with tappable clozes
@@ -338,7 +324,7 @@ struct CardFaceView: View {
                 // Tapping reveals the next unrevealed cloze in order!
                 if isFront {
                     if let nextUnrevealed = clozes.first(where: { !revealedClozeIndices.contains($0.id) }) {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                             revealedClozeIndices.insert(nextUnrevealed.id)
                         }
                     }
@@ -351,7 +337,6 @@ struct CardFaceView: View {
     private func medicalResourcesView(card: Card) -> some View {
         VStack(spacing: 12) {
             Divider()
-                .padding(.horizontal, 20)
             
             // Available Chips
             ScrollView(.horizontal, showsIndicators: false) {
@@ -372,7 +357,6 @@ struct CardFaceView: View {
                         sectionPill(.pearls, card: card)
                     }
                 }
-                .padding(.horizontal, 20)
             }
             
             // Expanded Content Accordions
@@ -393,7 +377,6 @@ struct CardFaceView: View {
                     expandedSectionBox(.pearls, text: card.clinicalPearls)
                 }
             }
-            .padding(.horizontal, 20)
         }
     }
     
@@ -402,7 +385,7 @@ struct CardFaceView: View {
         let isExpanded = expandedSections.contains(section)
         
         Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 if isExpanded {
                     expandedSections.remove(section)
                 } else {
@@ -412,20 +395,26 @@ struct CardFaceView: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: section.icon)
-                    .font(.caption2)
+                    .font(.subheadline)
                 Text(section.rawValue)
-                    .font(.caption.weight(.semibold))
+                    .font(.subheadline.bold())
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.footnote.bold())
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(isExpanded ? section.color : section.color.opacity(0.12))
-            .foregroundColor(isExpanded ? .white : section.color)
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .background(section.color.opacity(isExpanded ? 0.18 : 0.08))
+            .foregroundStyle(.primary)
             .clipShape(Capsule())
-            .shadow(color: isExpanded ? section.color.opacity(0.3) : .clear, radius: 4, x: 0, y: 2)
+            .overlay {
+                Capsule().strokeBorder(section.color.opacity(isExpanded ? 0.65 : 0.2), lineWidth: isExpanded ? 2 : 1)
+            }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(section.rawValue)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityHint("Shows or hides this reference section.")
     }
     
     @ViewBuilder
@@ -434,17 +423,15 @@ struct CardFaceView: View {
             HStack {
                 Label(section.rawValue, systemImage: section.icon)
                     .font(.subheadline.weight(.bold))
-                    .foregroundColor(section.color)
+                    .foregroundStyle(section.color)
                 Spacer()
-                Button {
-                    withAnimation {
+                Button("Collapse \(section.rawValue)", systemImage: "chevron.up") {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                         expandedSections.remove(section)
                     }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
             }
             
             if let markdown = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
@@ -468,10 +455,7 @@ struct CardFaceView: View {
                 .stroke(section.color.opacity(0.25), lineWidth: 1)
         )
         .cornerRadius(12)
-        .transition(.asymmetric(
-            insertion: .opacity.combined(with: .scale(scale: 0.95)),
-            removal: .opacity
-        ))
+        .transition(.opacity)
     }
     
     private var sanitizedContent: String {

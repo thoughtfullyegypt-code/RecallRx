@@ -4,11 +4,17 @@ import SwiftData
 struct StudyView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     
     let deck: Deck
     @State private var viewModel: StudyViewModel?
     @ObservedObject private var remoteManager = BluetoothControllerManager.shared
     @State private var swipeOffset: CGSize = .zero
+    @State private var isSwipeGradingEnabled = false
+    @State private var feedbackTrigger = 0
+    @AppStorage("showTimer") private var showTimer = true
     @AppStorage("disableSwipeUpEasy") private var disableSwipeUpEasy: Bool = false
     @State private var undoToastMessage: String?
     @State private var undoToastTimer: Task<Void, Never>?
@@ -47,85 +53,36 @@ struct StudyView: View {
                         )
                     }
                 } else {
-                    ProgressView()
+                    ProgressView("Preparing your session…")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.secondary)
-                    }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("End session", systemImage: "xmark", action: { dismiss() })
                 }
-                
+
                 ToolbarItem(placement: .principal) {
-                    if let vm = viewModel {
-                        VStack(spacing: 2) {
-                            HStack(spacing: 5) {
-                                Text(vm.deck.displayName)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                
-                                if remoteManager.isConnected {
-                                    HStack(spacing: 3) {
-                                        Circle()
-                                            .fill(Color.green)
-                                            .frame(width: 6, height: 6)
-                                        Image(systemName: "gamecontroller.fill")
-                                            .font(.system(size: 9))
-                                    }
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.green.opacity(0.12)))
-                                }
-                            }
-                            
-                            let totalSessionCards = vm.cardsStudied + vm.studyQueue.count + (vm.currentCard != nil ? 1 : 0)
-                            Text("\(vm.cardsStudied) / \(max(1, totalSessionCards)) studied")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    Text(deck.displayName)
+                        .font(.headline)
+                        .lineLimit(1)
                 }
-                
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
+
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     if let vm = viewModel {
-                        Button {
-                            vm.undoLastReview()
-                        } label: {
-                            Image(systemName: "arrow.uturn.backward")
-                        }
-                        .disabled(!vm.canUndo)
-                        
-                        Menu {
-                            Button {
-                                vm.skipCard()
-                            } label: {
-                                Label("Bury Card", systemImage: "moon.fill")
+                        Button("Undo last review", systemImage: "arrow.uturn.backward", action: vm.undoLastReview)
+                            .disabled(!vm.canUndo)
+
+                        Menu("Study options", systemImage: "ellipsis.circle") {
+                            Button("Bury card", systemImage: "moon", action: vm.skipCard)
+                            Button("Suspend card", systemImage: "pause") {
+                                suspendCurrentCard(vm: vm)
                             }
-                            
-                            Button {
-                                if let current = vm.currentCard {
-                                    Scheduler.suspendCard(current)
-                                    try? modelContext.save()
-                                    vm.nextCard()
-                                }
-                            } label: {
-                                Label("Suspend Card", systemImage: "pause.fill")
-                            }
-                            
                             Divider()
-                            
-                            Toggle(isOn: $disableSwipeUpEasy) {
-                                Label("Disable Swipe-Up Easy", systemImage: "hand.raised.slash.fill")
+                            Toggle("Swipe to grade", systemImage: "hand.draw", isOn: $isSwipeGradingEnabled)
+                            if isSwipeGradingEnabled {
+                                Toggle("Disable swipe-up Easy", systemImage: "hand.raised.slash", isOn: $disableSwipeUpEasy)
                             }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
                         }
                     }
                 }
@@ -136,11 +93,11 @@ struct StudyView: View {
                 Group {
                     Button("") {
                         if !vm.isShowingAnswer {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.showAnswer()
                             }
                         } else {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.rateCard(.good)
                             }
                         }
@@ -149,7 +106,7 @@ struct StudyView: View {
                     
                     Button("") {
                         if vm.isShowingAnswer {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.rateCard(.again)
                             }
                         }
@@ -158,7 +115,7 @@ struct StudyView: View {
                     
                     Button("") {
                         if vm.isShowingAnswer {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.rateCard(.hard)
                             }
                         }
@@ -167,7 +124,7 @@ struct StudyView: View {
                     
                     Button("") {
                         if vm.isShowingAnswer {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.rateCard(.good)
                             }
                         }
@@ -176,7 +133,7 @@ struct StudyView: View {
                     
                     Button("") {
                         if vm.isShowingAnswer {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 vm.rateCard(.easy)
                             }
                         }
@@ -184,14 +141,14 @@ struct StudyView: View {
                     .keyboardShortcut("4", modifiers: [])
                     
                     Button("") {
-                        withAnimation {
+                        withAnimation(reduceMotion ? nil : .default) {
                             vm.undoLastReview()
                         }
                     }
                     .keyboardShortcut("z", modifiers: [])
                     
                     Button("") {
-                        withAnimation {
+                        withAnimation(reduceMotion ? nil : .default) {
                             vm.skipCard()
                         }
                     }
@@ -199,7 +156,12 @@ struct StudyView: View {
                 }
                 .opacity(0)
                 .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
             }
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: feedbackTrigger)
+        .onDisappear {
+            undoToastTimer?.cancel()
         }
         .task {
             if viewModel == nil {
@@ -214,264 +176,181 @@ struct StudyView: View {
     
     private func bindControllerCallbacks(vm: StudyViewModel) {
         remoteManager.onShowAnswer = {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 vm.showAnswer()
             }
         }
         remoteManager.onRateAgain = {
             if vm.isShowingAnswer {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     vm.rateCard(.again)
                 }
             }
         }
         remoteManager.onRateHard = {
             if vm.isShowingAnswer {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     vm.rateCard(.hard)
                 }
             }
         }
         remoteManager.onRateGood = {
             if !vm.isShowingAnswer {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     vm.showAnswer()
                 }
             } else {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     vm.rateCard(.good)
                 }
             }
         }
         remoteManager.onRateEasy = {
             if vm.isShowingAnswer {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                     vm.rateCard(.easy)
                 }
             }
         }
         remoteManager.onUndo = {
-            withAnimation {
+            withAnimation(reduceMotion ? nil : .default) {
                 vm.undoLastReview()
             }
         }
         remoteManager.onBury = {
-            withAnimation {
+            withAnimation(reduceMotion ? nil : .default) {
                 vm.skipCard()
             }
         }
     }
     
+    private var usesInlineActions: Bool {
+        verticalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+    }
+
     @ViewBuilder
     private func studyContent(vm: StudyViewModel, card: Card) -> some View {
-        VStack(spacing: 12) {
-            // Counters and Timer Bar
-            HStack {
-                // Remaining counts
-                HStack(spacing: 8) {
-                    CounterBadge(count: vm.newCount, color: .blue, title: "New")
-                    CounterBadge(count: vm.learningCount, color: .orange, title: "Lrn")
-                    CounterBadge(count: vm.reviewCount, color: .green, title: "Rev")
-                }
-                
-                Spacer()
-                
-                // Per-card timer
-                TimelineView(.periodic(from: .now, by: 1.0)) { timeline in
-                    let elapsed = max(0, Int(timeline.date.timeIntervalSince(vm.cardStartTime)))
-                    HStack(spacing: 4) {
-                        Image(systemName: "stopwatch")
-                            .font(.caption2)
-                        Text(String(format: "%02d:%02d", elapsed / 60, elapsed % 60))
-                            .font(.caption.monospacedDigit())
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 20) {
+                    StudySessionHeaderView(
+                        studiedCount: vm.cardsStudied,
+                        remainingCount: vm.studyQueue.count + 1,
+                        newCount: vm.newCount,
+                        learningCount: vm.learningCount,
+                        reviewCount: vm.reviewCount,
+                        cardStartTime: vm.cardStartTime,
+                        showTimer: showTimer
+                    )
+                    .id("study-top")
+
+                    if remoteManager.isConnected {
+                        Label("Connected: \(remoteManager.controllerName)", systemImage: "gamecontroller")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 20)
+                            .accessibilityValue(remoteManager.lastPressedButton == "None" ? "Ready" : "Last input: \(remoteManager.lastPressedButton)")
                     }
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color(.systemGray6)))
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
-            
-            // Remote Controller HUD Indicator
-            if remoteManager.isConnected {
-                HStack(spacing: 6) {
-                    Image(systemName: "gamecontroller.fill")
-                        .foregroundColor(.green)
-                        .font(.caption)
-                    Text("\(remoteManager.controllerName):")
-                        .font(.caption2.bold())
-                        .foregroundColor(.secondary)
-                    Text(remoteManager.lastPressedButton == "None" ? "Ready" : "Last: \(remoteManager.lastPressedButton)")
-                        .font(.caption2.monospaced())
-                        .foregroundColor(.primary)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color(.secondarySystemBackground)))
-                .transition(.opacity)
-            }
-            
-            // Large Card Area with Interactive Swipe Grading
-            GeometryReader { geometry in
-                ZStack {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 16) {
-                            // Card Front
-                            CardFaceView(
-                                content: card.front,
-                                isFront: true,
-                                noteType: card.noteType,
-                                card: card
-                            )
-                            .frame(minHeight: vm.isShowingAnswer ? 180 : geometry.size.height - 30)
-                            
-                            // Card Back (after reveal)
-                            if vm.isShowingAnswer {
-                                // Separator Divider
-                                HStack {
-                                    Rectangle()
-                                        .fill(Color(.separator))
-                                        .frame(height: 1)
-                                    
-                                    Image(systemName: "lightbulb.fill")
-                                        .font(.caption)
-                                        .foregroundColor(.accentColor)
-                                    
-                                    Rectangle()
-                                        .fill(Color(.separator))
-                                        .frame(height: 1)
-                                }
-                                .padding(.vertical, 4)
+
+                    VStack(spacing: 20) {
+                        CardFaceView(content: card.front, isFront: true, noteType: card.noteType, card: card)
+                            .id("question-\(card.id)")
+                        if vm.isShowingAnswer {
+                            CardFaceView(content: card.back, isFront: false, noteType: card.noteType, card: card)
+                                .id("answer-\(card.id)")
                                 .transition(.opacity)
-                                
-                                CardFaceView(
-                                    content: card.back,
-                                    isFront: false,
-                                    noteType: card.noteType,
-                                    card: card
-                                )
-                                .frame(minHeight: 180)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                    }
-                    .contentShape(Rectangle())
-                    .offset(x: swipeOffset.width, y: swipeOffset.height)
-                    .rotationEffect(.degrees(Double(swipeOffset.width / 20.0)))
-                    .animation(.interactiveSpring(), value: swipeOffset)
-                    
-                    // Dynamic Swipe Grading Floating Overlay Badges
-                    if vm.isShowingAnswer && (abs(swipeOffset.width) > 30 || abs(swipeOffset.height) > 30) {
-                        swipeGradingBadgeOverlay
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if !vm.isShowingAnswer {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            vm.showAnswer()
                         }
                     }
-                }
-                .gesture(
-                    DragGesture(minimumDistance: 15)
-                        .onChanged { value in
-                            if vm.isShowingAnswer {
-                                swipeOffset = value.translation
-                            }
-                        }
-                        .onEnded { value in
-                            if !vm.isShowingAnswer {
-                                if value.translation.height < -30 {
-                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                        vm.showAnswer()
-                                    }
-                                }
-                            } else {
-                                handleSwipeGradingRelease(translation: value.translation, vm: vm)
-                            }
-                        }
-                )
-            }
-            
-            // Bottom Action Area
-            VStack(spacing: 0) {
-                if !vm.isShowingAnswer {
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            vm.showAnswer()
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "hand.tap.fill")
-                            Text("Show Answer")
-                        }
-                        .font(.headline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                } else {
-                    RatingButtonsView(
-                        intervalStrings: vm.intervalStrings,
-                        onRate: { rating in
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                performRating(rating, vm: vm)
-                            }
-                        }
-                    )
-                }
-                
-                // Floating Undo Toast Banner
-                if let msg = undoToastMessage, vm.canUndo {
-                    HStack(spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text(msg)
-                            .font(.subheadline.bold())
-                            .foregroundColor(.white)
-                        Spacer()
-                        Button {
-                            withAnimation {
-                                vm.undoLastReview()
-                                undoToastMessage = nil
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.uturn.backward")
-                                Text("Undo")
-                            }
-                            .font(.subheadline.bold())
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(Color.orange))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(Color.black.opacity(0.88))
-                            .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-                    )
                     .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .offset(x: reduceMotion ? 0 : swipeOffset.width, y: reduceMotion ? 0 : swipeOffset.height)
+                    .rotationEffect(.degrees(reduceMotion ? 0 : Double(swipeOffset.width / 30)))
+                    .overlay {
+                        if isSwipeGradingEnabled && vm.isShowingAnswer {
+                            swipeGradingBadgeOverlay
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 30)
+                            .onChanged { value in
+                                if vm.isShowingAnswer {
+                                    swipeOffset = value.translation
+                                }
+                            }
+                            .onEnded { value in
+                                if vm.isShowingAnswer {
+                                    handleSwipeGradingRelease(translation: value.translation, vm: vm)
+                                } else if value.translation.height < -30 {
+                                    revealAnswer(vm: vm)
+                                }
+                            },
+                        including: isSwipeGradingEnabled ? .all : .none
+                    )
+                    .accessibilityAction(named: "Show answer") {
+                        revealAnswer(vm: vm)
+                    }
+
+                    if usesInlineActions {
+                        studyActions(vm: vm)
+                    }
+                }
+                .frame(maxWidth: AppTheme.contentWidth)
+                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity)
+            }
+            .onChange(of: vm.isShowingAnswer) { _, isShowingAnswer in
+                if isShowingAnswer {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        proxy.scrollTo("answer-\(card.id)", anchor: .top)
+                    }
                 }
             }
-            .background(Color(uiColor: .systemBackground))
+            .onChange(of: card.id) {
+                proxy.scrollTo("study-top", anchor: .top)
+            }
+        }
+        .background(AppTheme.canvas)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !usesInlineActions {
+                studyActions(vm: vm)
+                    .background(.bar)
+            }
         }
     }
-    
+
+    private func studyActions(vm: StudyViewModel) -> some View {
+        StudyActionsView(
+            isShowingAnswer: vm.isShowingAnswer,
+            intervalStrings: vm.intervalStrings,
+            undoMessage: vm.canUndo ? undoToastMessage : nil,
+            swipeGradingEnabled: isSwipeGradingEnabled,
+            disableSwipeUpEasy: disableSwipeUpEasy,
+            onShowAnswer: { revealAnswer(vm: vm) },
+            onRate: { rating in
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    performRating(rating, vm: vm)
+                }
+            },
+            onUndo: {
+                vm.undoLastReview()
+                undoToastMessage = nil
+            }
+        )
+    }
+
+    private func revealAnswer(vm: StudyViewModel) {
+        guard !vm.isShowingAnswer else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+            vm.showAnswer()
+        }
+    }
+
+    private func suspendCurrentCard(vm: StudyViewModel) {
+        guard let card = vm.currentCard else { return }
+        Scheduler.suspendCard(card)
+        try? modelContext.save()
+        vm.nextCard()
+    }
+
     // MARK: - Swipe Grading Overlays & Gestures
     
     @ViewBuilder
@@ -511,90 +390,46 @@ struct StudyView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(color.opacity(0.85 + 0.15 * progress))
-        .foregroundColor(.white)
+        .foregroundStyle(.white)
         .clipShape(Capsule())
         .shadow(color: color.opacity(0.4), radius: 10, x: 0, y: 4)
-        .scaleEffect(0.8 + 0.25 * progress)
+        .scaleEffect(reduceMotion ? 1 : 0.8 + 0.25 * progress)
         .opacity(progress)
         .allowsHitTesting(false)
     }
     
     private func handleSwipeGradingRelease(translation: CGSize, vm: StudyViewModel) {
-        let threshold: CGFloat = 80.0
+        let threshold: CGFloat = 80
         let dx = translation.width
         let dy = translation.height
-        
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.prepare()
-        
+        let rating: Rating?
+
         if abs(dx) > abs(dy) {
-            // Horizontal swipe
-            if dx > threshold {
-                generator.impactOccurred()
-                withAnimation(.easeOut(duration: 0.2)) {
-                    swipeOffset.width = 600
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    swipeOffset = .zero
-                    performRating(.good, vm: vm)
-                }
-            } else if dx < -threshold {
-                generator.impactOccurred()
-                withAnimation(.easeOut(duration: 0.2)) {
-                    swipeOffset.width = -600
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    swipeOffset = .zero
-                    performRating(.again, vm: vm)
-                }
-            } else {
-                withAnimation(.spring()) {
-                    swipeOffset = .zero
-                }
-            }
+            rating = dx > threshold ? .good : (dx < -threshold ? .again : nil)
+        } else if dy < -threshold && !disableSwipeUpEasy {
+            rating = .easy
+        } else if dy > threshold {
+            rating = .hard
         } else {
-            // Vertical swipe
-            if dy < -threshold {
-                if disableSwipeUpEasy {
-                    let lightGen = UIImpactFeedbackGenerator(style: .light)
-                    lightGen.impactOccurred()
-                    withAnimation(.spring()) {
-                        swipeOffset = .zero
-                    }
-                } else {
-                    generator.impactOccurred()
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        swipeOffset.height = -600
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        swipeOffset = .zero
-                        performRating(.easy, vm: vm)
-                    }
-                }
-            } else if dy > threshold {
-                generator.impactOccurred()
-                withAnimation(.easeOut(duration: 0.2)) {
-                    swipeOffset.height = 600
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    swipeOffset = .zero
-                    performRating(.hard, vm: vm)
-                }
-            } else {
-                withAnimation(.spring()) {
-                    swipeOffset = .zero
-                }
+            rating = nil
+        }
+
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+            swipeOffset = .zero
+            if let rating {
+                feedbackTrigger += 1
+                performRating(rating, vm: vm)
             }
         }
     }
-    
+
     private func performRating(_ rating: Rating, vm: StudyViewModel) {
         vm.rateCard(rating)
         showUndoToast(message: "Rated \(rating.name)")
     }
     
     private func showUndoToast(message: String) {
-        withAnimation {
+        withAnimation(reduceMotion ? nil : .default) {
             undoToastMessage = message
         }
         undoToastTimer?.cancel()
@@ -602,34 +437,11 @@ struct StudyView: View {
             try? await Task.sleep(nanoseconds: 4_500_000_000)
             if !Task.isCancelled {
                 await MainActor.run {
-                    withAnimation {
+                    withAnimation(reduceMotion ? nil : .default) {
                         undoToastMessage = nil
                     }
                 }
             }
         }
-    }
-}
-
-private struct CounterBadge: View {
-    let count: Int
-    let color: Color
-    let title: String
-    
-    var body: some View {
-        HStack(spacing: 4) {
-            Text("\(count)")
-                .font(.caption.bold().monospacedDigit())
-                .foregroundColor(color)
-            Text(title)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(color.opacity(0.12))
-        )
     }
 }

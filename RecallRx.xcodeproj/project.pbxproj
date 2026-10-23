@@ -81,6 +81,37 @@
 		04A7814E4EEC70DE7D6C41B1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8D562B3E40B6C9EC53F38F07 /* Assets.xcassets */; };
 		E1A100000000000000000005 /* DueWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A100000000000000000001 /* DueWidget.swift */; };
 		E1A100000000000000000006 /* RecallRxWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1A100000000000000000004 /* RecallRxWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3E5604262BFF55FAFDC100CC /* BrowseCardRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F25E2D304FB2670BA9D7E327 /* BrowseCardRow.swift */; };
+		85A7AC95F72415A1CDDE5ECE /* BrowseFilterChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0741A3B1A7FFE4FF0B31FFA /* BrowseFilterChip.swift */; };
+		83B30CCEFB74797FA91FBF12 /* CardDraftFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = BECDF1A79ABA2FF6492D420A /* CardDraftFields.swift */; };
+		71BFA66A2A6E2EA84AEEB8CC /* CardDraftPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5920B03A30E7C9068DF838D9 /* CardDraftPreview.swift */; };
+		26C4B88EAE657AFEEA8ED2ED /* CloudSyncStatusPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0852E78189594703BD9808 /* CloudSyncStatusPill.swift */; };
+		B45CA60A4E606D33715E673F /* DeckCountBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B7A658F48BA9BBCA0DA6B36 /* DeckCountBadge.swift */; };
+		CF6074ADD1A57390B8A9D9A4 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBD8DA846BD079C61A283BC /* DeckDetailView.swift */; };
+		842F3C6459BA5C78CFFC3609 /* DeckLibrarySummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B183E1E9C6DB4505B21421DC /* DeckLibrarySummaryView.swift */; };
+		6862C665DBD7E9757EAB6E7D /* DeckQueueMetricView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A915D4483EC3E1E2A022DAF /* DeckQueueMetricView.swift */; };
+		D6404AB32CC4CA8CFC447D69 /* DeckRowHierarchyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E734139A59F960063F77170F /* DeckRowHierarchyView.swift */; };
+		3C81F2EB2C1E479614BECB73 /* OnboardingChoiceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F6BC3119D5E39F476249AB2 /* OnboardingChoiceRow.swift */; };
+		E6DB09D4DB06D4449A06CBBD /* OnboardingFeatureRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5971B855F43DFBA730BCCD3A /* OnboardingFeatureRow.swift */; };
+		D6FE249C2B68540DA37212FA /* OnboardingStepHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA378B5A5B43EEA6B11C36B5 /* OnboardingStepHeader.swift */; };
+		00F12F842F087BF927ADE7B5 /* CloudSyncAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FFB5FF7697F579F81EC2F8C /* CloudSyncAuditView.swift */; };
+		9261582C69FC066E799B8570 /* RemoteButtonMappingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E0E137948AF50683CF8C5B /* RemoteButtonMappingView.swift */; };
+		CC75695B0DB6BA2327860782 /* SettingsFSRSPersonalizationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DDD5230C846B844C14BB126 /* SettingsFSRSPersonalizationSection.swift */; };
+		B1631A053289765E54C6EFAC /* SettingsRemoteSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D236634484869B215DA298D2 /* SettingsRemoteSection.swift */; };
+		6020620D570D849D2F32B5C2 /* SettingsSectionMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3498E338450212E4C4CD48E /* SettingsSectionMenuView.swift */; };
+		A555494488F3D3DD53A78062 /* ShareActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F9213A8F596E69E4CDEBFF2 /* ShareActivityView.swift */; };
+		75C03FCE050C14847A26F213 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A46314ED0FA57CC80767EA80 /* AppTheme.swift */; };
+		6F9B79AEAC3E028F38E91076 /* StatsCardDistributionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7669008BB759F4DCF71CCE06 /* StatsCardDistributionView.swift */; };
+		BC07F6CF510487110CD2E7A5 /* StatsFiltersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7312CD67DAD541E9754774AB /* StatsFiltersView.swift */; };
+		57D74ED3B722D2DFF0B2051A /* StatsMetricTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A58EF29903207107FFF519B1 /* StatsMetricTile.swift */; };
+		9C4456ADAFFD1C84FE151486 /* StatsOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CDA89914948F98FEFF7E86 /* StatsOverviewCard.swift */; };
+		581FF8E1A229A89638E7FF47 /* StatsReviewCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1B4C98C6581459847A3834 /* StatsReviewCharts.swift */; };
+		F3D6F59630BED36EA66DD836 /* RatingButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72096A621978A072DC1CD156 /* RatingButton.swift */; };
+		FDC5D311E22A218A70177699 /* StudyCounterBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83A0D86CC9C61E1857F55995 /* StudyCounterBadge.swift */; };
+		7C57D7DCF4C3DD153B8014C3 /* StudySessionHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A33FA8C324DAEA4F1989FEA /* StudySessionHeaderView.swift */; };
+		54DBC4364D2847B3369B70F2 /* StudySessionMetricView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A513554721FC8C723075BDC /* StudySessionMetricView.swift */; };
+		2D958ED0E77557DD64A4D2BE /* HeatmapDayButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C0CC58DAC2E42D3F1A108E /* HeatmapDayButton.swift */; };
+		E43406696B95655EBF6D0915 /* StudyActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FA52CDE9EE08A5ED7B7B5D /* StudyActionsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -167,6 +198,37 @@
 		E1A100000000000000000003 /* RecallRxWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RecallRxWidget.entitlements; sourceTree = "<group>"; };
 		E1A100000000000000000004 /* RecallRxWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RecallRxWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1A100000000000000000012 /* RecallRx.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RecallRx.entitlements; sourceTree = "<group>"; };
+		F25E2D304FB2670BA9D7E327 /* BrowseCardRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseCardRow.swift; sourceTree = "<group>"; };
+		F0741A3B1A7FFE4FF0B31FFA /* BrowseFilterChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseFilterChip.swift; sourceTree = "<group>"; };
+		BECDF1A79ABA2FF6492D420A /* CardDraftFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDraftFields.swift; sourceTree = "<group>"; };
+		5920B03A30E7C9068DF838D9 /* CardDraftPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDraftPreview.swift; sourceTree = "<group>"; };
+		3C0852E78189594703BD9808 /* CloudSyncStatusPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncStatusPill.swift; sourceTree = "<group>"; };
+		0B7A658F48BA9BBCA0DA6B36 /* DeckCountBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckCountBadge.swift; sourceTree = "<group>"; };
+		BCBD8DA846BD079C61A283BC /* DeckDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailView.swift; sourceTree = "<group>"; };
+		B183E1E9C6DB4505B21421DC /* DeckLibrarySummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckLibrarySummaryView.swift; sourceTree = "<group>"; };
+		3A915D4483EC3E1E2A022DAF /* DeckQueueMetricView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckQueueMetricView.swift; sourceTree = "<group>"; };
+		E734139A59F960063F77170F /* DeckRowHierarchyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckRowHierarchyView.swift; sourceTree = "<group>"; };
+		8F6BC3119D5E39F476249AB2 /* OnboardingChoiceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingChoiceRow.swift; sourceTree = "<group>"; };
+		5971B855F43DFBA730BCCD3A /* OnboardingFeatureRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFeatureRow.swift; sourceTree = "<group>"; };
+		AA378B5A5B43EEA6B11C36B5 /* OnboardingStepHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingStepHeader.swift; sourceTree = "<group>"; };
+		9FFB5FF7697F579F81EC2F8C /* CloudSyncAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncAuditView.swift; sourceTree = "<group>"; };
+		59E0E137948AF50683CF8C5B /* RemoteButtonMappingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteButtonMappingView.swift; sourceTree = "<group>"; };
+		5DDD5230C846B844C14BB126 /* SettingsFSRSPersonalizationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFSRSPersonalizationSection.swift; sourceTree = "<group>"; };
+		D236634484869B215DA298D2 /* SettingsRemoteSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRemoteSection.swift; sourceTree = "<group>"; };
+		D3498E338450212E4C4CD48E /* SettingsSectionMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionMenuView.swift; sourceTree = "<group>"; };
+		1F9213A8F596E69E4CDEBFF2 /* ShareActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareActivityView.swift; sourceTree = "<group>"; };
+		A46314ED0FA57CC80767EA80 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		7669008BB759F4DCF71CCE06 /* StatsCardDistributionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsCardDistributionView.swift; sourceTree = "<group>"; };
+		7312CD67DAD541E9754774AB /* StatsFiltersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsFiltersView.swift; sourceTree = "<group>"; };
+		A58EF29903207107FFF519B1 /* StatsMetricTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsMetricTile.swift; sourceTree = "<group>"; };
+		18CDA89914948F98FEFF7E86 /* StatsOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsOverviewCard.swift; sourceTree = "<group>"; };
+		4B1B4C98C6581459847A3834 /* StatsReviewCharts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsReviewCharts.swift; sourceTree = "<group>"; };
+		72096A621978A072DC1CD156 /* RatingButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingButton.swift; sourceTree = "<group>"; };
+		83A0D86CC9C61E1857F55995 /* StudyCounterBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyCounterBadge.swift; sourceTree = "<group>"; };
+		0A33FA8C324DAEA4F1989FEA /* StudySessionHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionHeaderView.swift; sourceTree = "<group>"; };
+		8A513554721FC8C723075BDC /* StudySessionMetricView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionMetricView.swift; sourceTree = "<group>"; };
+		77C0CC58DAC2E42D3F1A108E /* HeatmapDayButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapDayButton.swift; sourceTree = "<group>"; };
+		52FA52CDE9EE08A5ED7B7B5D /* StudyActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudyActionsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -357,6 +419,7 @@
 		C454586A1F4E28C340BDC1AD /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				70F03C6EE96C7349B1DD878E /* Shared */,
 				F90A0EEC2259C239380A0C97 /* Browse */,
 				5604F9EFD3EFFBB0D287B31E /* Cards */,
 				282B457D7A44E133CEBF9D96 /* Decks */,
@@ -374,6 +437,8 @@
 		F90A0EEC2259C239380A0C97 /* Browse */ = {
 			isa = PBXGroup;
 			children = (
+				F0741A3B1A7FFE4FF0B31FFA /* BrowseFilterChip.swift */,
+				F25E2D304FB2670BA9D7E327 /* BrowseCardRow.swift */,
 				075E9CEFD09753F26385AED0 /* BrowseView.swift */,
 				27186EB2B120F867AB5FA5B7 /* CardDetailView.swift */,
 			);
@@ -383,6 +448,8 @@
 		5604F9EFD3EFFBB0D287B31E /* Cards */ = {
 			isa = PBXGroup;
 			children = (
+				5920B03A30E7C9068DF838D9 /* CardDraftPreview.swift */,
+				BECDF1A79ABA2FF6492D420A /* CardDraftFields.swift */,
 				F7BB82AC0B9CC004233C4C12 /* AddCardView.swift */,
 				A83806C1F2C1789F86D43824 /* CardEditorView.swift */,
 			);
@@ -392,6 +459,12 @@
 		282B457D7A44E133CEBF9D96 /* Decks */ = {
 			isa = PBXGroup;
 			children = (
+				E734139A59F960063F77170F /* DeckRowHierarchyView.swift */,
+				3A915D4483EC3E1E2A022DAF /* DeckQueueMetricView.swift */,
+				B183E1E9C6DB4505B21421DC /* DeckLibrarySummaryView.swift */,
+				BCBD8DA846BD079C61A283BC /* DeckDetailView.swift */,
+				0B7A658F48BA9BBCA0DA6B36 /* DeckCountBadge.swift */,
+				3C0852E78189594703BD9808 /* CloudSyncStatusPill.swift */,
 				7BE3A5001CFBDEC1965484E5 /* AddDeckView.swift */,
 				33FAD448E8F59F2EB33836E8 /* DeckListView.swift */,
 				9DF5433147B8452ED86DEDF7 /* DeckOptionsView.swift */,
@@ -417,6 +490,12 @@
 		4F60404FBFDF40A2513E2919 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				1F9213A8F596E69E4CDEBFF2 /* ShareActivityView.swift */,
+				D3498E338450212E4C4CD48E /* SettingsSectionMenuView.swift */,
+				D236634484869B215DA298D2 /* SettingsRemoteSection.swift */,
+				5DDD5230C846B844C14BB126 /* SettingsFSRSPersonalizationSection.swift */,
+				59E0E137948AF50683CF8C5B /* RemoteButtonMappingView.swift */,
+				9FFB5FF7697F579F81EC2F8C /* CloudSyncAuditView.swift */,
 				BA5C515A70A9A9EE01C6CCB1 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -425,6 +504,12 @@
 		248DBDF7CBDDC2C62FDC76E2 /* Stats */ = {
 			isa = PBXGroup;
 			children = (
+				77C0CC58DAC2E42D3F1A108E /* HeatmapDayButton.swift */,
+				4B1B4C98C6581459847A3834 /* StatsReviewCharts.swift */,
+				18CDA89914948F98FEFF7E86 /* StatsOverviewCard.swift */,
+				A58EF29903207107FFF519B1 /* StatsMetricTile.swift */,
+				7312CD67DAD541E9754774AB /* StatsFiltersView.swift */,
+				7669008BB759F4DCF71CCE06 /* StatsCardDistributionView.swift */,
 				643B50ACE0B26E404FC54D47 /* ForecastChartView.swift */,
 				52C946317A79B6E5211B7C6B /* HeatmapView.swift */,
 				6ACC9077E38C23D371A8CC1F /* StatsView.swift */,
@@ -435,6 +520,11 @@
 		B995352EA1FEB308C921B63B /* Study */ = {
 			isa = PBXGroup;
 			children = (
+				52FA52CDE9EE08A5ED7B7B5D /* StudyActionsView.swift */,
+				8A513554721FC8C723075BDC /* StudySessionMetricView.swift */,
+				0A33FA8C324DAEA4F1989FEA /* StudySessionHeaderView.swift */,
+				83A0D86CC9C61E1857F55995 /* StudyCounterBadge.swift */,
+				72096A621978A072DC1CD156 /* RatingButton.swift */,
 				F1F2F3F4F5F6010101010006 /* RichTextHTMLView.swift */,
 				A0865F0CCAEDE4B78AF36C93 /* CardFaceView.swift */,
 				BA5E6C98EE121C9F1BDD8672 /* RatingButtonsView.swift */,
@@ -456,9 +546,20 @@
 		O1O2O3O4O5O6010101010001 /* Onboarding */ = {
 			isa = PBXGroup;
 			children = (
+				AA378B5A5B43EEA6B11C36B5 /* OnboardingStepHeader.swift */,
+				5971B855F43DFBA730BCCD3A /* OnboardingFeatureRow.swift */,
+				8F6BC3119D5E39F476249AB2 /* OnboardingChoiceRow.swift */,
 				F1F2F3F4F5F6010101010017 /* OnboardingView.swift */,
 			);
 			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		70F03C6EE96C7349B1DD878E /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A46314ED0FA57CC80767EA80 /* AppTheme.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -565,6 +666,37 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E43406696B95655EBF6D0915 /* StudyActionsView.swift in Sources */,
+				2D958ED0E77557DD64A4D2BE /* HeatmapDayButton.swift in Sources */,
+				54DBC4364D2847B3369B70F2 /* StudySessionMetricView.swift in Sources */,
+				7C57D7DCF4C3DD153B8014C3 /* StudySessionHeaderView.swift in Sources */,
+				FDC5D311E22A218A70177699 /* StudyCounterBadge.swift in Sources */,
+				F3D6F59630BED36EA66DD836 /* RatingButton.swift in Sources */,
+				581FF8E1A229A89638E7FF47 /* StatsReviewCharts.swift in Sources */,
+				9C4456ADAFFD1C84FE151486 /* StatsOverviewCard.swift in Sources */,
+				57D74ED3B722D2DFF0B2051A /* StatsMetricTile.swift in Sources */,
+				BC07F6CF510487110CD2E7A5 /* StatsFiltersView.swift in Sources */,
+				6F9B79AEAC3E028F38E91076 /* StatsCardDistributionView.swift in Sources */,
+				75C03FCE050C14847A26F213 /* AppTheme.swift in Sources */,
+				A555494488F3D3DD53A78062 /* ShareActivityView.swift in Sources */,
+				6020620D570D849D2F32B5C2 /* SettingsSectionMenuView.swift in Sources */,
+				B1631A053289765E54C6EFAC /* SettingsRemoteSection.swift in Sources */,
+				CC75695B0DB6BA2327860782 /* SettingsFSRSPersonalizationSection.swift in Sources */,
+				9261582C69FC066E799B8570 /* RemoteButtonMappingView.swift in Sources */,
+				00F12F842F087BF927ADE7B5 /* CloudSyncAuditView.swift in Sources */,
+				D6FE249C2B68540DA37212FA /* OnboardingStepHeader.swift in Sources */,
+				E6DB09D4DB06D4449A06CBBD /* OnboardingFeatureRow.swift in Sources */,
+				3C81F2EB2C1E479614BECB73 /* OnboardingChoiceRow.swift in Sources */,
+				D6404AB32CC4CA8CFC447D69 /* DeckRowHierarchyView.swift in Sources */,
+				6862C665DBD7E9757EAB6E7D /* DeckQueueMetricView.swift in Sources */,
+				842F3C6459BA5C78CFFC3609 /* DeckLibrarySummaryView.swift in Sources */,
+				CF6074ADD1A57390B8A9D9A4 /* DeckDetailView.swift in Sources */,
+				B45CA60A4E606D33715E673F /* DeckCountBadge.swift in Sources */,
+				26C4B88EAE657AFEEA8ED2ED /* CloudSyncStatusPill.swift in Sources */,
+				71BFA66A2A6E2EA84AEEB8CC /* CardDraftPreview.swift in Sources */,
+				83B30CCEFB74797FA91FBF12 /* CardDraftFields.swift in Sources */,
+				85A7AC95F72415A1CDDE5ECE /* BrowseFilterChip.swift in Sources */,
+				3E5604262BFF55FAFDC100CC /* BrowseCardRow.swift in Sources */,
 				B1B2C3D4E5F6010101010001 /* LoadBalancer.swift in Sources */,
 				B1B2C3D4E5F6010101010002 /* UWorldSyncView.swift in Sources */,
 				B1B2C3D4E5F6010101010003 /* BluetoothControllerManager.swift in Sources */,

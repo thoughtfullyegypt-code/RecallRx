@@ -38,7 +38,7 @@ struct RichTextHTMLView: View {
                 switch segment {
                 case .text(let attrString):
                     Text(attrString)
-                        .font(.system(size: 21, weight: .regular, design: .serif))
+                        .font(.system(.title3, design: .serif))
                         .lineSpacing(6)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -81,14 +81,15 @@ struct RichTextHTMLView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "hand.tap.fill")
-                        .font(.caption2)
+                        .font(.subheadline)
                     Text(hint ?? "[...]")
-                        .font(.system(size: 19, weight: .bold, design: .monospaced))
+                        .font(.system(.title3, design: .monospaced).bold())
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+                .padding(.vertical, 8)
+                .frame(minHeight: 44)
                 .background(Color.blue.opacity(0.15))
-                .foregroundColor(.blue)
+                .foregroundStyle(.blue)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
@@ -96,10 +97,12 @@ struct RichTextHTMLView: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(hint.map { "Reveal blank: \($0)" } ?? "Reveal blank")
+            .accessibilityHint("Reveals this blank without grading the card.")
         } else {
             Text(answer)
-                .font(.system(size: 21, weight: .bold, design: .serif))
-                .foregroundColor(.blue)
+                .font(.system(.title3, design: .serif).bold())
+                .foregroundStyle(.blue)
                 .underline(color: .blue.opacity(0.6))
                 .padding(.horizontal, 4)
                 .background(Color.blue.opacity(0.1))
@@ -130,8 +133,8 @@ struct RichTextHTMLView: View {
                         Image(systemName: "plus.magnifyingglass")
                         Text("Tap to Zoom")
                     }
-                    .font(.caption2.bold())
-                    .foregroundColor(.secondary)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.secondary)
                 }
             }
             .buttonStyle(.plain)
@@ -139,10 +142,10 @@ struct RichTextHTMLView: View {
             // Placeholder / missing image indicator
             HStack(spacing: 8) {
                 Image(systemName: "photo.badge.exclamationmark")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Text(src)
                     .font(.caption.monospaced())
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             .padding(10)
             .background(Color(.secondarySystemBackground))
@@ -163,19 +166,20 @@ struct RichTextHTMLView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isPlaying ? "stop.fill" : "speaker.wave.2.fill")
-                    .foregroundColor(isPlaying ? .red : .blue)
+                    .foregroundStyle(isPlaying ? .red : .blue)
                 
-                Text(isPlaying ? "Playing Audio..." : "Play Audio Clip")
+                Text(isPlaying ? "Stop audio" : "Play audio clip")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
                 
                 Spacer()
                 
                 Text(filename)
-                    .font(.caption2.monospaced())
-                    .foregroundColor(.secondary)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .frame(minHeight: 44)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(isPlaying ? Color.red.opacity(0.1) : Color.blue.opacity(0.08))
@@ -186,6 +190,8 @@ struct RichTextHTMLView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isPlaying ? "Stop audio clip" : "Play audio clip")
+        .accessibilityValue(filename)
     }
     
     // MARK: - Parser

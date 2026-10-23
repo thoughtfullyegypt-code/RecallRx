@@ -3,6 +3,8 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("appAccentColor") private var appAccentColor = "Teal"
     
     @State private var selectedTab: Tab = .decks
     
@@ -39,28 +41,29 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             DeckListView()
                 .tabItem {
-                    Label("Decks", systemImage: "house.fill")
+                    Label("Decks", systemImage: "rectangle.stack.fill")
                 }
                 .tag(Tab.decks)
             
             AddCardView()
                 .tabItem {
-                    Label("Add", systemImage: "plus.circle.fill")
+                    Label("Add Card", systemImage: "plus.circle.fill")
                 }
                 .tag(Tab.add)
             
             BrowseView()
                 .tabItem {
-                    Label("Browse", systemImage: "rectangle.stack.fill")
+                    Label("Browse", systemImage: "magnifyingglass")
                 }
                 .tag(Tab.browse)
             
             StatsView()
                 .tabItem {
-                    Label("Stats", systemImage: "chart.bar.fill")
+                    Label("Progress", systemImage: "chart.bar.fill")
                 }
                 .tag(Tab.stats)
         }
+        .tint(AppTheme.controlTint(named: appAccentColor))
         .environment(\.modelContext, modelContext)
         .sheet(item: $activeSheet) { sheet in
             sheetDestination(sheet)
@@ -192,7 +195,7 @@ struct ContentView: View {
     }
     
     private func presentTargetScreen(_ screen: String) {
-        withAnimation {
+        withAnimation(reduceMotion ? nil : .default) {
             switch screen {
             case "decks":
                 activeSheet = nil

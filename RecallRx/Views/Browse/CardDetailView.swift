@@ -33,12 +33,18 @@ struct CardDetailView: View {
                 actionButtonsSection
             }
             .padding()
+            .frame(maxWidth: AppTheme.contentWidth)
+            .frame(maxWidth: .infinity)
         }
-        .navigationTitle(card.front.truncated50.isEmpty ? "Card Details" : card.front.truncated50)
+        .background(AppTheme.canvas)
+        .navigationTitle("Card Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Edit Card", systemImage: "pencil") { isShowingEditor = true }
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
+                Menu("Card options", systemImage: "ellipsis.circle") {
                     Button {
                         isShowingEditor = true
                     } label: {
@@ -68,8 +74,6 @@ struct CardDetailView: View {
                     } label: {
                         Label("Delete Card", systemImage: "trash")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -95,40 +99,51 @@ struct CardDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             // Front
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("FRONT")
-                        .font(.caption)
-                        .fontWeight(.bold)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Question")
+                        .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    badge(text: card.state.displayName, color: stateBadgeColor(card.state))
-                    if card.isSuspended {
-                        badge(text: "Suspended", color: .yellow)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            badge(text: card.state.displayName, color: stateBadgeColor(card.state))
+                            if card.isSuspended {
+                                badge(text: "Suspended", color: .orange)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            badge(text: card.state.displayName, color: stateBadgeColor(card.state))
+                            if card.isSuspended {
+                                badge(text: "Suspended", color: .orange)
+                            }
+                        }
                     }
                 }
 
-                Text(card.front.isEmpty ? "No prompt text" : card.front)
-                    .font(.title3)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                RichTextHTMLView(
+                    rawContent: card.front.isEmpty ? "No prompt text" : card.front,
+                    isFront: false,
+                    noteType: card.noteType
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
             }
 
             Divider()
 
             // Back
             VStack(alignment: .leading, spacing: 6) {
-                Text("BACK")
-                    .font(.caption)
+                Text("Answer")
+                    .font(.subheadline)
                     .fontWeight(.bold)
                     .foregroundStyle(.secondary)
 
-                Text(card.back.isEmpty ? "No answer text" : card.back)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                RichTextHTMLView(
+                    rawContent: card.back.isEmpty ? "No answer text" : card.back,
+                    isFront: false,
+                    noteType: card.noteType
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
             }
             
             // High-Yield Medical Resources
@@ -138,10 +153,10 @@ struct CardDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         Image(systemName: "cross.case.fill")
-                            .foregroundColor(.blue)
+                            .foregroundStyle(.blue)
                         Text("High-Yield Medical References")
                             .font(.caption.weight(.bold))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     
                     if !card.extra.isEmpty {
@@ -157,30 +172,30 @@ struct CardDetailView: View {
                         medicalInfoBox(title: "Pathology", icon: "microscope.fill", color: .purple, text: card.pathoma)
                     }
                     if !card.clinicalPearls.isEmpty {
-                        medicalInfoBox(title: "Clinical Pearls", icon: "lightbulb.fill", color: .yellow, text: card.clinicalPearls)
+                        medicalInfoBox(title: "Clinical Pearls", icon: "lightbulb.fill", color: .orange, text: card.clinicalPearls)
                     }
                 }
             }
         }
         .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 2)
+        .background(AppTheme.surface)
+        .clipShape(.rect(cornerRadius: AppTheme.cornerRadius))
+        .overlay { RoundedRectangle(cornerRadius: AppTheme.cornerRadius).strokeBorder(AppTheme.border) }
     }
     
     private func medicalInfoBox(title: String, icon: String, color: Color, text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(title, systemImage: icon)
-                .font(.caption2.weight(.bold))
-                .foregroundColor(color)
+                .font(.subheadline.bold())
+                .foregroundStyle(color)
             Text(text)
                 .font(.footnote)
-                .foregroundColor(.primary)
+                .foregroundStyle(.primary)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.08))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
     }
 
     // MARK: - Card Info Section
@@ -220,26 +235,23 @@ struct CardDetailView: View {
                 infoRow(label: "Last Modified", value: card.modifiedAt.shortDescription, icon: "clock")
             }
             .padding(.horizontal, 14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .background(AppTheme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 
     private func infoRow(label: String, value: String, icon: String) -> some View {
-        HStack {
+        LabeledContent {
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        } label: {
             Label(label, systemImage: icon)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-
-            Spacer()
-
-            Text(value)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.trailing)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Tags Section
@@ -254,15 +266,15 @@ struct CardDetailView: View {
                     ForEach(card.tags, id: \.self) { tag in
                         HStack(spacing: 4) {
                             Image(systemName: "tag.fill")
-                                .font(.caption2)
+                                .font(.footnote)
                             Text(tag)
-                                .font(.caption)
+                                .font(.subheadline)
                                 .fontWeight(.medium)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color.accentColor.opacity(0.12))
-                        .foregroundStyle(Color.accentColor)
+                        .background(AppTheme.accent.opacity(0.12))
+                        .foregroundStyle(AppTheme.accent)
                         .clipShape(Capsule())
                     }
                 }
@@ -286,21 +298,12 @@ struct CardDetailView: View {
             }
 
             if card.reviewLogs.isEmpty {
-                HStack {
-                    Spacer()
-                    VStack(spacing: 6) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text("No reviews recorded yet")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 20)
-                    Spacer()
-                }
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                ContentUnavailableView(
+                    "No reviews yet",
+                    systemImage: "clock.arrow.circlepath",
+                    description: Text("Study this card to start its review history.")
+                )
+                .background(AppTheme.surface, in: .rect(cornerRadius: 12))
             } else {
                 VStack(spacing: 8) {
                     ForEach(sortedReviewLogs, id: \.id) { log in
@@ -316,37 +319,26 @@ struct CardDetailView: View {
     }
 
     private func reviewLogRow(log: ReviewLog) -> some View {
-        HStack(spacing: 12) {
-            // Rating Badge
-            Text(log.ratingName)
-                .font(.caption.bold())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(ratingColor(log.rating).opacity(0.15))
+        VStack(alignment: .leading, spacing: 10) {
+            Text(log.reviewDate.formatted(date: .abbreviated, time: .shortened))
+                .font(.subheadline.bold())
+            Label(log.ratingName, systemImage: "checkmark.circle")
+                .font(.subheadline)
                 .foregroundStyle(ratingColor(log.rating))
-                .clipShape(Capsule())
-
-            // Details
-            VStack(alignment: .leading, spacing: 2) {
-                Text(log.reviewDate.formatted(date: .abbreviated, time: .shortened))
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-
-                Text("Interval: \(Int(log.intervalBefore))d → \(Int(log.intervalAfter))d  •  Ease: \(Int(log.easeFactorBefore * 100))% → \(Int(log.easeFactorAfter * 100))%")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            // Time taken
-            Text(String(format: "%.1fs", Double(log.timeTakenMs) / 1000.0))
-                .font(.caption)
+            Text("Interval: \(Int(log.intervalBefore))d → \(Int(log.intervalAfter))d")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("Ease: \(Int(log.easeFactorBefore * 100))% → \(Int(log.easeFactorAfter * 100))%")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("Response time: \(Double(log.timeTakenMs) / 1000, format: .number.precision(.fractionLength(1))) seconds")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surface, in: .rect(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Actions Section
@@ -449,7 +441,7 @@ struct CardDetailView: View {
 
     private func badge(text: String, color: Color) -> some View {
         Text(text)
-            .font(.caption2.bold())
+            .font(.subheadline.bold())
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(color.opacity(0.15))

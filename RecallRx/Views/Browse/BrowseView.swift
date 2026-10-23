@@ -3,16 +3,19 @@ import SwiftData
 
 struct BrowseView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Deck.name) private var decks: [Deck]
 
     @State private var viewModel: BrowseViewModel?
-    @State private var isSelectionMode: Bool = false
+    @State private var isSelectionMode = false
     @State private var cardToEdit: Card?
-    @State private var showMoveDeckSheet: Bool = false
-    @State private var showAddTagAlert: Bool = false
-    @State private var newTagInput: String = ""
-    @State private var showDeleteBatchAlert: Bool = false
-    @State private var showHierarchicalTagsSheet: Bool = false
+    @State private var showCreateCard = false
+    @State private var showMoveDeckSheet = false
+    @State private var showAddTagAlert = false
+    @State private var newTagInput = ""
+    @State private var showDeleteConfirmation = false
+    @State private var pendingDeleteIDs: Set<UUID> = []
+    @State private var showHierarchicalTagsSheet = false
 
     var body: some View {
         NavigationStack {
@@ -20,63 +23,51 @@ struct BrowseView: View {
                 if let vm = viewModel {
                     contentBody(viewModel: vm)
                 } else {
-                    ProgressView()
+                    ProgressView("Loading your library…")
                 }
             }
-            .navigationTitle("Browse")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                toolbarItems
-            }
-            .searchable(
-                text: searchTextBinding,
-                prompt: "Search front, back, or tag"
-            )
+            .navigationTitle("Library")
+            .toolbar { toolbarItems }
+            .searchable(text: searchTextBinding, prompt: "Search questions, answers, or tags")
             .task {
                 if viewModel == nil {
                     viewModel = BrowseViewModel(modelContext: modelContext)
+                } else {
+                    viewModel?.fetchCards()
                 }
             }
-            .sheet(item: $cardToEdit) { card in
+            .sheet(item: $cardToEdit, onDismiss: refreshCards) { card in
                 CardEditorView(card: card)
+            }
+            .sheet(isPresented: $showCreateCard, onDismiss: refreshCards) {
+                CardEditorView(defaultDeck: viewModel?.selectedDeck)
             }
             .sheet(isPresented: $showMoveDeckSheet) {
                 if let vm = viewModel {
                     moveDeckSheet(viewModel: vm)
                 }
             }
-            .sheet(isPresented: $showHierarchicalTagsSheet) {
+            .sheet(isPresented: $showHierarchicalTagsSheet, onDismiss: refreshCards) {
                 HierarchicalTagView()
             }
-            .alert("Add Tag to Selected Cards", isPresented: $showAddTagAlert) {
+            .alert("Add a tag", isPresented: $showAddTagAlert) {
                 TextField("Tag name", text: $newTagInput)
                     .textInputAutocapitalization(.never)
-                Button("Add") {
-                    if let vm = viewModel, !newTagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        vm.addTag(newTagInput, to: vm.selectedCards)
-                        newTagInput = ""
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    newTagInput = ""
-                }
+                    .autocorrectionDisabled()
+                Button("Add Tag", action: addTagToSelection)
+                    .disabled(newTagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) { newTagInput = "" }
             } message: {
-                Text("Enter a tag to apply to the \(viewModel?.selectedCards.count ?? 0) selected card(s).")
+                Text("Apply a tag to \(viewModel?.selectedCards.count ?? 0) selected cards.")
             }
-            .alert("Delete Cards", isPresented: $showDeleteBatchAlert) {
-                Button("Delete", role: .destructive) {
-                    if let vm = viewModel {
-                        vm.deleteCards(vm.selectedCards)
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
+            .alert("Delete cards?", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive, action: deletePendingCards)
+                Button("Cancel", role: .cancel) { pendingDeleteIDs.removeAll() }
             } message: {
-                Text("Are you sure you want to delete \(viewModel?.selectedCards.count ?? 0) card(s)? This cannot be undone.")
+                Text("This permanently deletes ^[\(pendingDeleteIDs.count) card](inflect: true) and their review history. This cannot be undone.")
             }
         }
     }
-
-    // MARK: - Search Binding
 
     private var searchTextBinding: Binding<String> {
         Binding(
@@ -85,402 +76,212 @@ struct BrowseView: View {
         )
     }
 
-    // MARK: - Content Body
-
-    @ViewBuilder
     private func contentBody(viewModel: BrowseViewModel) -> some View {
         VStack(spacing: 0) {
-            // Filter Bar
             filterBar(viewModel: viewModel)
-                .background(Color(uiColor: .systemGroupedBackground))
-
-            // Card List / Empty State
             if viewModel.filteredCards.isEmpty {
                 emptyStateView(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 cardList(viewModel: viewModel)
             }
-
-            // Multi-Select Action Bar (Bottom)
+        }
+        .background(AppTheme.canvas)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if isSelectionMode && !viewModel.selectedCards.isEmpty {
                 batchActionBar(viewModel: viewModel)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isSelectionMode)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.selectedCards.count)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isSelectionMode)
     }
 
-    // MARK: - Filter Bar
-
-    @ViewBuilder
     private func filterBar(viewModel: BrowseViewModel) -> some View {
-        VStack(spacing: 8) {
-            // Deck Filters
+        VStack(alignment: .leading, spacing: 12) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    filterChip(
-                        title: "All Decks",
-                        isSelected: viewModel.selectedDeck == nil,
-                        icon: "square.stack.3d.up.fill"
-                    ) {
-                        viewModel.selectedDeck = nil
-                    }
+                    BrowseFilterChip(
+                        title: "All decks",
+                        systemImage: "square.stack.3d.up",
+                        isSelected: viewModel.selectedDeck == nil
+                    ) { viewModel.selectedDeck = nil }
 
                     ForEach(decks, id: \.id) { deck in
-                        filterChip(
-                            title: deck.name,
-                            isSelected: viewModel.selectedDeck?.id == deck.id,
-                            icon: "folder.fill"
+                        BrowseFilterChip(
+                            title: deck.displayName,
+                            systemImage: "folder",
+                            isSelected: viewModel.selectedDeck?.id == deck.id
                         ) {
-                            if viewModel.selectedDeck?.id == deck.id {
-                                viewModel.selectedDeck = nil
-                            } else {
-                                viewModel.selectedDeck = deck
-                            }
+                            viewModel.selectedDeck = viewModel.selectedDeck?.id == deck.id ? nil : deck
                         }
                     }
                 }
                 .padding(.horizontal)
             }
 
-            // State & Tag Filters
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    // State chips
-                    filterChip(
-                        title: "All States",
-                        isSelected: viewModel.selectedState == nil,
-                        icon: "circle.grid.2x2.fill"
-                    ) {
-                        viewModel.selectedState = nil
-                    }
-
-                    ForEach(CardState.allCases) { state in
-                        filterChip(
-                            title: state.displayName,
-                            isSelected: viewModel.selectedState == state,
-                            icon: "circle.circle.fill",
-                            activeColor: stateColor(state)
-                        ) {
-                            if viewModel.selectedState == state {
-                                viewModel.selectedState = nil
-                            } else {
-                                viewModel.selectedState = state
-                            }
+            HStack {
+                Menu {
+                    Picker("Card state", selection: Bindable(viewModel).selectedState) {
+                        Text("All states").tag(CardState?.none)
+                        ForEach(CardState.allCases) { state in
+                            Text(state.displayName).tag(Optional(state))
                         }
                     }
-
-                    // Tag Menu
-                    Menu {
-                        Button("All Tags") {
-                            viewModel.selectedTag = nil
+                    Picker("Tag", selection: Bindable(viewModel).selectedTag) {
+                        Text("All tags").tag(String?.none)
+                        ForEach(viewModel.allTags, id: \.self) { tag in
+                            Text(tag).tag(Optional(tag))
                         }
-
-                        if !viewModel.allTags.isEmpty {
-                            Divider()
-                            ForEach(viewModel.allTags, id: \.self) { tag in
-                                Button(tag) {
-                                    viewModel.selectedTag = tag
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "tag.fill")
-                            Text(viewModel.selectedTag ?? "Tags")
-                            Image(systemName: "chevron.down")
-                                .font(.caption2)
-                        }
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(viewModel.selectedTag != nil ? Color.accentColor : Color(uiColor: .secondarySystemFill))
-                        .foregroundStyle(viewModel.selectedTag != nil ? Color.white : Color.primary)
-                        .clipShape(Capsule())
                     }
+                    if hasFilters(viewModel) {
+                        Divider()
+                        Button("Clear Filters", systemImage: "xmark.circle") {
+                            clearFilters(viewModel)
+                        }
+                    }
+                } label: {
+                    Label(filterTitle(viewModel), systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.subheadline)
+                        .frame(minHeight: 44)
                 }
-                .padding(.horizontal)
+
+                Spacer()
+
+                if viewModel.isSearching {
+                    ProgressView()
+                        .accessibilityLabel("Searching cards")
+                } else {
+                    Text("\(viewModel.filteredCards.count) cards")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
             }
+            .padding(.horizontal)
         }
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
-    private func filterChip(
-        title: String,
-        isSelected: Bool,
-        icon: String? = nil,
-        activeColor: Color = .accentColor,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let icon = icon {
-                    Image(systemName: icon)
-                        .font(.caption2)
-                }
-                Text(title)
-                    .font(.caption.weight(.medium))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(isSelected ? activeColor : Color(uiColor: .secondarySystemFill))
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Card List
-
-    @ViewBuilder
     private func cardList(viewModel: BrowseViewModel) -> some View {
         List {
-            Section {
-                if isSelectionMode {
-                    HStack {
-                        Text("\(viewModel.selectedCards.count) of \(viewModel.filteredCards.count) selected")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-
-                        Spacer()
-
-                        Button(viewModel.selectedCards.count == viewModel.filteredCards.count ? "Deselect All" : "Select All") {
+            if isSelectionMode {
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(viewModel.selectedCards.count) selected")
+                            .font(.headline)
+                        Button("Select or deselect all results") {
                             viewModel.toggleSelectAll()
                         }
-                        .font(.subheadline.bold())
+                        .font(.subheadline)
+                        .frame(minHeight: 44)
                     }
-                    .padding(.vertical, 2)
                 }
+            }
 
+            Section {
                 ForEach(viewModel.displayedCards, id: \.id) { card in
-                    cardRowView(card: card, viewModel: viewModel)
+                    cardRow(card: card, viewModel: viewModel)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                viewModel.deleteCards([card.id])
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                requestDelete([card.id])
                             }
-
-                            Button {
+                            Button(
+                                card.isSuspended ? "Resume" : "Suspend",
+                                systemImage: card.isSuspended ? "play.circle" : "pause.circle"
+                            ) {
                                 if card.isSuspended {
                                     viewModel.unsuspendCards([card.id])
                                 } else {
                                     viewModel.suspendCards([card.id])
                                 }
-                            } label: {
-                                Label(
-                                    card.isSuspended ? "Unsuspend" : "Suspend",
-                                    systemImage: card.isSuspended ? "play.circle" : "pause.circle"
-                                )
                             }
                             .tint(.orange)
                         }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                cardToEdit = card
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(.blue)
-                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            Button("Edit", systemImage: "pencil") { cardToEdit = card }
+                                            }
                 }
 
-                // Batch pagination control
                 if viewModel.hasMoreCards {
-                    HStack {
-                        Spacer()
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                viewModel.loadMoreCards()
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.down.circle.fill")
-                                Text("Load More (\(viewModel.displayedCards.count) of \(viewModel.filteredCards.count))")
-                            }
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
+                    Button("Load more cards", systemImage: "arrow.down.circle") {
+                        viewModel.loadMoreCards()
                     }
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
-            } header: {
-                HStack {
-                    if viewModel.displayedCards.count < viewModel.filteredCards.count {
-                        Text("Showing \(viewModel.displayedCards.count) of \(viewModel.filteredCards.count) Cards")
-                    } else {
-                        Text("\(viewModel.filteredCards.count) Cards")
-                    }
-
-                    Spacer()
-
-                    if viewModel.isSearching {
-                        ProgressView()
-                            .controlSize(.mini)
-                    }
+            } footer: {
+                if viewModel.hasMoreCards {
+                    Text("Showing \(viewModel.displayedCards.count) of \(viewModel.filteredCards.count) cards")
+                } else if !isSelectionMode {
+                    Text("Open a card to see its answer, edit it, or review its history.")
                 }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .refreshable { viewModel.fetchCards() }
     }
 
-    // MARK: - Card Row View
-
     @ViewBuilder
-    private func cardRowView(card: Card, viewModel: BrowseViewModel) -> some View {
+    private func cardRow(card: Card, viewModel: BrowseViewModel) -> some View {
         if isSelectionMode {
+            let isSelected = viewModel.selectedCards.contains(card.id)
             Button {
-                if viewModel.selectedCards.contains(card.id) {
+                if isSelected {
                     viewModel.selectedCards.remove(card.id)
                 } else {
                     viewModel.selectedCards.insert(card.id)
                 }
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: viewModel.selectedCards.contains(card.id) ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(viewModel.selectedCards.contains(card.id) ? Color.accentColor : Color.secondary)
-
-                    cardRowContent(card: card)
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
+                        .accessibilityHidden(true)
+                    BrowseCardRow(card: card)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            .accessibilityHint("Double-tap to change selection")
         } else {
             NavigationLink(destination: CardDetailView(card: card)) {
-                cardRowContent(card: card)
+                BrowseCardRow(card: card)
             }
         }
     }
 
-    private func cardRowContent(card: Card) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Front preview
-            Text(card.front.isEmpty ? "Untitled card" : card.front)
-                .font(.body)
-                .fontWeight(.medium)
-                .lineLimit(2)
-                .foregroundStyle(.primary)
-
-            // Details subtitle
-            HStack(spacing: 8) {
-                if let deck = card.deck {
-                    HStack(spacing: 3) {
-                        Image(systemName: "folder.fill")
-                            .font(.caption2)
-                        Text(deck.name)
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 3) {
-                    Image(systemName: "calendar")
-                        .font(.caption2)
-                    Text(card.dueDate.relativeDescription)
-                        .font(.caption)
-                }
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
-                // State badge
-                Text(card.state.displayName)
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(stateColor(card.state).opacity(0.15))
-                    .foregroundStyle(stateColor(card.state))
-                    .clipShape(Capsule())
-
-                if card.isSuspended {
-                    Text("Suspended")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.yellow.opacity(0.2))
-                        .foregroundStyle(.orange)
-                        .clipShape(Capsule())
-                }
-            }
-        }
-        .padding(.vertical, 3)
-    }
-
-    // MARK: - Batch Action Bar
-
-    @ViewBuilder
     private func batchActionBar(viewModel: BrowseViewModel) -> some View {
-        HStack {
-            // Suspend / Unsuspend
-            Button {
-                viewModel.suspendCards(viewModel.selectedCards)
-            } label: {
-                VStack(spacing: 3) {
-                    Image(systemName: "pause.circle.fill")
-                        .font(.title3)
-                    Text("Suspend")
-                        .font(.caption2)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Actions for \(viewModel.selectedCards.count) selected cards")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
+                Menu("Study status", systemImage: "pause.circle") {
+                    Button("Suspend", systemImage: "pause.circle") {
+                        viewModel.suspendCards(viewModel.selectedCards)
+                    }
+                    Button("Resume", systemImage: "play.circle") {
+                        viewModel.unsuspendCards(viewModel.selectedCards)
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 44)
 
-            // Tag
-            Button {
-                showAddTagAlert = true
-            } label: {
-                VStack(spacing: 3) {
-                    Image(systemName: "tag.fill")
-                        .font(.title3)
-                    Text("Tag")
-                        .font(.caption2)
+                Button("Tag", systemImage: "tag") { showAddTagAlert = true }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                Button("Move", systemImage: "folder") { showMoveDeckSheet = true }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    requestDelete(viewModel.selectedCards)
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .frame(maxWidth: .infinity)
-
-            // Move
-            Button {
-                showMoveDeckSheet = true
-            } label: {
-                VStack(spacing: 3) {
-                    Image(systemName: "folder.fill")
-                        .font(.title3)
-                    Text("Move")
-                        .font(.caption2)
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            // Delete
-            Button(role: .destructive) {
-                showDeleteBatchAlert = true
-            } label: {
-                VStack(spacing: 3) {
-                    Image(systemName: "trash.fill")
-                        .font(.title3)
-                    Text("Delete")
-                        .font(.caption2)
-                }
-            }
-            .foregroundStyle(.red)
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.bordered)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundStyle(Color(uiColor: .separator)),
-            alignment: .top
-        )
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
     }
-
-    // MARK: - Move Deck Sheet
 
     private func moveDeckSheet(viewModel: BrowseViewModel) -> some View {
         NavigationStack {
@@ -489,111 +290,117 @@ struct BrowseView: View {
                     viewModel.moveCards(viewModel.selectedCards, to: deck)
                     showMoveDeckSheet = false
                 } label: {
-                    HStack {
-                        Label(deck.name, systemImage: "folder.fill")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(deck.name, systemImage: "folder")
                             .foregroundStyle(.primary)
-                        Spacer()
                         Text("\(deck.cards.count) cards")
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
+                    .frame(minHeight: 44)
                 }
             }
-            .navigationTitle("Move to Deck")
+            .navigationTitle("Move to deck")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showMoveDeckSheet = false
-                    }
+                    Button("Cancel") { showMoveDeckSheet = false }
                 }
             }
         }
     }
-
-    // MARK: - Empty State View
 
     @ViewBuilder
     private func emptyStateView(viewModel: BrowseViewModel) -> some View {
         if !viewModel.searchText.isEmpty {
-            ContentUnavailableView(
-                "No Cards Found",
-                systemImage: "magnifyingglass",
-                description: Text("No cards matched '\(viewModel.searchText)'.")
-            )
-        } else if viewModel.selectedDeck != nil || viewModel.selectedState != nil || viewModel.selectedTag != nil {
-            ContentUnavailableView(
-                "No Matching Cards",
-                systemImage: "line.3.horizontal.decrease.circle",
-                description: Text("Try clearing or broadening your filters.")
-            )
+            ContentUnavailableView.search
+        } else if hasFilters(viewModel) {
+            ContentUnavailableView {
+                Label("No matching cards", systemImage: "line.3.horizontal.decrease.circle")
+            } description: {
+                Text("Try a different deck, card state, or tag.")
+            } actions: {
+                Button("Clear Filters") { clearFilters(viewModel) }
+                    .buttonStyle(.bordered)
+            }
         } else {
-            ContentUnavailableView(
-                "No Cards",
-                systemImage: "rectangle.stack",
-                description: Text("Cards you create will appear here.")
-            )
+            ContentUnavailableView {
+                Label("Your library starts here", systemImage: "rectangle.stack")
+            } description: {
+                Text("Create a card with one question and one clear answer.")
+            } actions: {
+                Button("Create a Card", systemImage: "plus") { showCreateCard = true }
+                    .buttonStyle(.borderedProminent)
+            }
         }
     }
-
-    // MARK: - Toolbar Items
 
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            HStack(spacing: 12) {
-                if let vm = viewModel {
-                    Menu {
-                        Picker("Sort By", selection: Bindable(vm).sortOrder) {
-                            ForEach(SortOrder.allCases) { order in
-                                Text(order.displayName).tag(order)
-                            }
+            if let vm = viewModel {
+                Menu("Library options", systemImage: "ellipsis.circle") {
+                    Picker("Sort by", selection: Bindable(vm).sortOrder) {
+                        ForEach(SortOrder.allCases) { order in
+                            Text(order.displayName).tag(order)
                         }
-
-                        Divider()
-
-                        Button {
-                            vm.sortAscending.toggle()
-                        } label: {
-                            Label(
-                                vm.sortAscending ? "Ascending Order" : "Descending Order",
-                                systemImage: vm.sortAscending ? "arrow.up" : "arrow.down"
-                            )
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down.circle")
                     }
+                    Button(
+                        vm.sortAscending ? "Sort Descending" : "Sort Ascending",
+                        systemImage: vm.sortAscending ? "arrow.down" : "arrow.up"
+                    ) { vm.sortAscending.toggle() }
+                    Divider()
+                    Button("Explore Tags", systemImage: "tag") { showHierarchicalTagsSheet = true }
                 }
-                
-                Button {
-                    showHierarchicalTagsSheet = true
-                } label: {
-                    Image(systemName: "folder.badge.gearshape")
-                        .foregroundColor(.blue)
-                }
-                .accessibilityLabel("Hierarchical Tags Explorer")
             }
         }
-
         ToolbarItem(placement: .topBarTrailing) {
-            Button(isSelectionMode ? "Done" : "Select") {
-                isSelectionMode.toggle()
-                if !isSelectionMode {
-                    viewModel?.selectedCards.removeAll()
-                }
-            }
-            .fontWeight(isSelectionMode ? .bold : .regular)
+            Button(isSelectionMode ? "Done" : "Select", action: toggleSelectionMode)
+                .disabled(viewModel?.cards.isEmpty != false)
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button("Add Card", systemImage: "plus") { showCreateCard = true }
+                .disabled(isSelectionMode)
         }
     }
 
-    // MARK: - Helpers
+    private func hasFilters(_ viewModel: BrowseViewModel) -> Bool {
+        viewModel.selectedDeck != nil || viewModel.selectedState != nil || viewModel.selectedTag != nil
+    }
 
-    private func stateColor(_ state: CardState) -> Color {
-        switch state {
-        case .new: return .blue
-        case .learning: return .orange
-        case .review: return .green
-        case .relearning: return .red
-        }
+    private func filterTitle(_ viewModel: BrowseViewModel) -> String {
+        let count = [viewModel.selectedState != nil, viewModel.selectedTag != nil].filter { $0 }.count
+        return count == 0 ? "Filters" : "Filters (\(count))"
+    }
+
+    private func clearFilters(_ viewModel: BrowseViewModel) {
+        viewModel.selectedDeck = nil
+        viewModel.selectedState = nil
+        viewModel.selectedTag = nil
+    }
+
+    private func toggleSelectionMode() {
+        isSelectionMode.toggle()
+        if !isSelectionMode { viewModel?.selectedCards.removeAll() }
+    }
+
+    private func refreshCards() {
+        viewModel?.fetchCards()
+    }
+
+    private func addTagToSelection() {
+        guard let viewModel else { return }
+        viewModel.addTag(newTagInput, to: viewModel.selectedCards)
+        newTagInput = ""
+    }
+
+    private func requestDelete(_ ids: Set<UUID>) {
+        pendingDeleteIDs = ids
+        showDeleteConfirmation = true
+    }
+
+    private func deletePendingCards() {
+        viewModel?.deleteCards(pendingDeleteIDs)
+        pendingDeleteIDs.removeAll()
     }
 }

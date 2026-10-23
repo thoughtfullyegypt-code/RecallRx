@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 
 struct ForecastChartView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let data: [(date: Date, dueCount: Int)]
 
     private var totalForecastCards: Int {
@@ -18,111 +19,51 @@ struct ForecastChartView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Metrics Summary
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Total Due (30d)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("\(totalForecastCards)")
-                        .font(.title3.bold())
-                        .foregroundStyle(.primary)
-                }
-
-                Divider()
-                    .frame(height: 28)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Daily Average")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(String(format: "%.1f", dailyAverage))
-                        .font(.title3.bold())
-                        .foregroundStyle(.primary)
-                }
-
-                Divider()
-                    .frame(height: 28)
-
-                if let peak = peakDay, peak.dueCount > 0 {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Peak Day")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("\(peak.dueCount)")
-                            .font(.title3.bold())
-                            .foregroundStyle(.purple)
-                    }
-                }
-
-                Spacer()
-            }
-
+        VStack(alignment: .leading, spacing: 16) {
             if totalForecastCards == 0 {
-                HStack {
-                    Spacer()
-                    VStack(spacing: 6) {
-                        Image(systemName: "calendar.badge.clock")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text("No cards due in the next 30 days")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 24)
-                    Spacer()
-                }
+                ContentUnavailableView("No cards scheduled", systemImage: "calendar.badge.checkmark", description: Text("There are no cards scheduled in the next 30 days for this selection."))
             } else {
-                // Chart
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .top), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 12) {
+                    StatsMetricTile(title: "Cards scheduled", value: totalForecastCards.formatted(), symbol: "calendar")
+                    StatsMetricTile(title: "Daily average", value: dailyAverage.formatted(.number.precision(.fractionLength(1))), symbol: "chart.bar")
+                }
+                if let peakDay {
+                    Label {
+                        Text("Busiest day: \(peakDay.date.formatted(.dateTime.month(.abbreviated).day())) · \(peakDay.dueCount) cards")
+                    } icon: {
+                        Image(systemName: "calendar.badge.clock")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
                 Chart {
-                    ForEach(Array(data.enumerated()), id: \.offset) { _, item in
-                        BarMark(
-                            x: .value("Date", item.date, unit: .day),
-                            y: .value("Due Cards", item.dueCount)
-                        )
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .purple],
-                                startPoint: .bottom,
-                                endPoint: .top
-                            )
-                        )
-                        .cornerRadius(3)
+                    ForEach(data, id: \.date) { item in
+                        BarMark(x: .value("Date", item.date, unit: .day), y: .value("Cards due", item.dueCount))
+                            .foregroundStyle(AppTheme.accent.gradient)
+                            .cornerRadius(3)
+                            .accessibilityLabel(Text(item.date, format: .dateTime.month().day()))
+                            .accessibilityValue(Text("\(item.dueCount) cards scheduled"))
                     }
-
-                    if dailyAverage > 0 {
-                        RuleMark(
-                            y: .value("Average", dailyAverage)
-                        )
-                        .foregroundStyle(Color.secondary.opacity(0.5))
+                    RuleMark(y: .value("Daily average", dailyAverage))
+                        .foregroundStyle(.secondary)
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                        .annotation(position: .top, alignment: .trailing) {
-                            Text("Avg: \(String(format: "%.1f", dailyAverage))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                        .accessibilityHidden(true)
                 }
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .day, count: 5)) { value in
-                        AxisGridLine()
-                        AxisTick()
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                         AxisValueLabel(format: .dateTime.month(.abbreviated).day())
                     }
                 }
-                .chartYAxis {
-                    AxisMarks { value in
-                        AxisGridLine()
-                        AxisTick()
-                        AxisValueLabel()
-                    }
-                }
-                .frame(height: 180)
+                .chartYAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+                .frame(height: 190)
+                .accessibilityLabel("Cards scheduled over the next 30 days")
+                Text("Dashed line: daily average. Counts show currently scheduled cards, not a daily review limit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding()
+        .background(AppTheme.surface, in: .rect(cornerRadius: AppTheme.cornerRadius))
     }
 }
