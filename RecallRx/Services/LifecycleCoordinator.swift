@@ -56,7 +56,8 @@ final class LifecycleCoordinator {
                 forName: ModelContext.didSave, object: nil, queue: .main
             ) { [weak self, weak context] notification in
                 Task { @MainActor in
-                    guard let self, let context else { return }
+                    guard let self, let context,
+                          self.observedContext === context else { return }
                     if let savedContext = notification.object as? ModelContext,
                        savedContext.container !== context.container { return }
                     self.requestRefresh(context: context)

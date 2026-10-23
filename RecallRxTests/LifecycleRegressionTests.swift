@@ -159,6 +159,28 @@ final class LifecycleRegressionTests: XCTestCase {
     }
 
     @MainActor
+    func testStopDiscardsAlreadyQueuedSaveCallbacks() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        var serviceCalls = 0
+        let coordinator = LifecycleCoordinator(
+            isEnabled: true, debounceNanoseconds: 1_000_000,
+            widgetRefresh: { _ in serviceCalls += 1; return .empty },
+            reminderRefresh: { _ in serviceCalls += 1 },
+            automaticBackup: { _ in serviceCalls += 1 },
+            captureLocalDeletions: { _ in serviceCalls += 1 },
+            markRestoredLibrary: { _ in serviceCalls += 1 }
+        )
+        coordinator.start(context: context)
+        context.insert(Deck(name: "Saved immediately before stopping"))
+        try context.save()
+        // didSave queued a MainActor callback. Stop before yielding to that task.
+        coordinator.stop()
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(serviceCalls, 0, "A queued save callback must not restart a stopped coordinator.")
+    }
+
+    @MainActor
     func testSuccessfulSaveBurstCoalescesAndRestoreMarksBeforeRefresh() async throws {
         let container = try makeContainer()
         let context = container.mainContext
