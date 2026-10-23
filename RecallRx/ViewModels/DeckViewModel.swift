@@ -7,9 +7,11 @@ final class DeckViewModel {
     var modelContext: ModelContext
     var decks: [Deck] = []
     var searchText: String = ""
-    
-    init(modelContext: ModelContext) {
+    private let defaults: UserDefaults
+
+    init(modelContext: ModelContext, defaults: UserDefaults = .standard) {
         self.modelContext = modelContext
+        self.defaults = defaults
         fetchDecks()
     }
     
@@ -30,7 +32,7 @@ final class DeckViewModel {
     
     var topLevelDecks: [Deck] {
         decks
-            .filter { $0.parentDeckID == nil && !$0.name.contains("Test Deck") && !$0.name.contains("Validation Test") }
+            .filter { $0.parentDeckID == nil }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
     
@@ -67,34 +69,35 @@ final class DeckViewModel {
         return total
     }
     
-    func getDueCount(for deck: Deck) -> (new: Int, learning: Int, review: Int) {
-        var newTotal = deck.newCards
-        var learningTotal = deck.learningCards
-        var reviewTotal = deck.dueCards
-        
+    func getDueCount(for deck: Deck, now: Date = .now, calendar: Calendar = .current) -> (new: Int, learning: Int, review: Int) {
+        let queue = Scheduler.getDueCards(from: deck, now: now, calendar: calendar)
+        var newTotal = queue.filter { $0.state == .new }.count
+        var learningTotal = queue.filter { $0.state == .learning || $0.state == .relearning }.count
+        var reviewTotal = queue.filter { $0.state == .review }.count
+        // Each child has its own independent daily budget. Do not cap the aggregate
+        // by the parent's limit after the parent's direct queue has already been limited.
         for subdeck in getSubdecks(for: deck) {
-            let subCount = getDueCount(for: subdeck)
+            let subCount = getDueCount(for: subdeck, now: now, calendar: calendar)
             newTotal += subCount.new
             learningTotal += subCount.learning
             reviewTotal += subCount.review
         }
-        
-        let cappedNew = min(newTotal, deck.newCardsPerDay)
-        let cappedReview = min(reviewTotal, deck.reviewsPerDay)
-        
-        return (new: cappedNew, learning: learningTotal, review: cappedReview)
+        return (new: newTotal, learning: learningTotal, review: reviewTotal)
     }
-    
+
     // MARK: - CRUD Operations
     
-    func addDeck(name: String, description: String = "", parentDeckID: UUID? = nil) {
+    func addDeck(name: String, description: String = "", parentDeckID: UUID? = nil,
+                 newCardsPerDay: Int? = nil, reviewsPerDay: Int? = nil) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         
         let deck = Deck(
             name: trimmed,
             descriptionText: description,
-            parentDeckID: parentDeckID
+            parentDeckID: parentDeckID,
+            newCardsPerDay: max(newCardsPerDay ?? (defaults.object(forKey: "defaultNewCardsPerDay") as? Int) ?? AppConstants.defaultNewCardsPerDay, 0),
+            reviewsPerDay: max(reviewsPerDay ?? (defaults.object(forKey: "defaultMaxReviewsPerDay") as? Int) ?? AppConstants.defaultReviewsPerDay, 0)
         )
         modelContext.insert(deck)
         try? modelContext.save()

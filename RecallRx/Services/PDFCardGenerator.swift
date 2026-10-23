@@ -48,37 +48,47 @@ struct GeneratedCardCandidate: Identifiable, Sendable {
 }
 
 /// Telemetry Tracker for User Edits and Rejections of AI Generated Cards
-final class PDFCardTelemetry: Sendable {
+final class PDFCardTelemetry: @unchecked Sendable {
     static let shared = PDFCardTelemetry()
-    private init() {}
+    private let defaults: UserDefaults
+    private let lock = NSLock()
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
     
     func logGenerated(count: Int) {
-        let current = UserDefaults.standard.integer(forKey: "telemetry_cards_generated")
-        UserDefaults.standard.set(current + count, forKey: "telemetry_cards_generated")
+        increment("telemetry_cards_generated", by: count)
     }
     
     func logApproved(count: Int) {
-        let current = UserDefaults.standard.integer(forKey: "telemetry_cards_approved")
-        UserDefaults.standard.set(current + count, forKey: "telemetry_cards_approved")
+        increment("telemetry_cards_approved", by: count)
     }
     
     func logEdited(count: Int = 1) {
-        let current = UserDefaults.standard.integer(forKey: "telemetry_cards_edited")
-        UserDefaults.standard.set(current + count, forKey: "telemetry_cards_edited")
+        increment("telemetry_cards_edited", by: count)
     }
     
     func logRejected(count: Int) {
-        let current = UserDefaults.standard.integer(forKey: "telemetry_cards_rejected")
-        UserDefaults.standard.set(current + count, forKey: "telemetry_cards_rejected")
+        increment("telemetry_cards_rejected", by: count)
     }
     
     var stats: (generated: Int, approved: Int, edited: Int, rejected: Int) {
-        (
-            UserDefaults.standard.integer(forKey: "telemetry_cards_generated"),
-            UserDefaults.standard.integer(forKey: "telemetry_cards_approved"),
-            UserDefaults.standard.integer(forKey: "telemetry_cards_edited"),
-            UserDefaults.standard.integer(forKey: "telemetry_cards_rejected")
+        lock.lock()
+        defer { lock.unlock() }
+        return (
+            defaults.integer(forKey: "telemetry_cards_generated"),
+            defaults.integer(forKey: "telemetry_cards_approved"),
+            defaults.integer(forKey: "telemetry_cards_edited"),
+            defaults.integer(forKey: "telemetry_cards_rejected")
         )
+    }
+
+    private func increment(_ key: String, by count: Int) {
+        guard count > 0 else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        defaults.set(defaults.integer(forKey: key) + count, forKey: key)
     }
 }
 
@@ -109,7 +119,8 @@ final class PDFCardGenerator {
     /// Parses a PDF file from URL and synthesizes flashcards
     static func generateCards(
         from pdfURL: URL,
-        deckName: String = "Lecture Deck"
+        deckName: String = "Lecture Deck",
+        telemetry: PDFCardTelemetry = .shared
     ) -> [GeneratedCardCandidate] {
         guard let document = PDFDocument(url: pdfURL) else { return [] }
         
@@ -128,17 +139,18 @@ final class PDFCardGenerator {
             candidates.append(contentsOf: slideCards)
         }
         
-        PDFCardTelemetry.shared.logGenerated(count: candidates.count)
+        telemetry.logGenerated(count: candidates.count)
         return candidates
     }
     
     /// Parses plain text notes (e.g. copied lecture outline)
     static func generateCards(
         fromPlainText text: String,
-        lectureName: String = "Notes"
+        lectureName: String = "Notes",
+        telemetry: PDFCardTelemetry = .shared
     ) -> [GeneratedCardCandidate] {
         let cards = extractCardsFromSlideText(text, slideNumber: 1, lectureName: lectureName)
-        PDFCardTelemetry.shared.logGenerated(count: cards.count)
+        telemetry.logGenerated(count: cards.count)
         return cards
     }
     

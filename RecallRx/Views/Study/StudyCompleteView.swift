@@ -19,9 +19,9 @@ struct StudyCompleteView: View {
             VStack(spacing: 24) {
                 if cardsStudied == 0 {
                     ContentUnavailableView {
-                        Label("You're up to date", systemImage: "checkmark.circle")
+                        Label("No cards ready right now", systemImage: "checkmark.circle")
                     } description: {
-                        Text("No cards are queued for this session. Come back when more cards are due.")
+                        Text("Your daily limits and learning schedules determine what is available. Check back later, or adjust this deck’s limits in Deck Options.")
                     }
                 } else {
                     VStack(spacing: 16) {

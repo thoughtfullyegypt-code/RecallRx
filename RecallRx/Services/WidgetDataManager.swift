@@ -5,8 +5,8 @@ import UserNotifications
 import WidgetKit
 #endif
 
-/// Data snapshot used by iOS 17 Home & Lock Screen Widgets
-struct WidgetSnapshotData: Codable, Sendable {
+/// Persisted, real data shared with the Home and Lock Screen widgets.
+struct WidgetSnapshotData: Codable, Sendable, Equatable {
     let totalDue: Int
     let newCount: Int
     let learnCount: Int
@@ -14,163 +14,105 @@ struct WidgetSnapshotData: Codable, Sendable {
     let streakDays: Int
     let topDeckName: String
     let lastUpdated: Date
-    
-    static var placeholder: WidgetSnapshotData {
-        WidgetSnapshotData(
-            totalDue: 42,
-            newCount: 15,
-            learnCount: 7,
-            reviewCount: 20,
-            streakDays: 14,
-            topDeckName: "USMLE Step 1 - Pathology",
-            lastUpdated: Date()
-        )
+
+    static var empty: WidgetSnapshotData {
+        WidgetSnapshotData(totalDue: 0, newCount: 0, learnCount: 0, reviewCount: 0,
+                           streakDays: 0, topDeckName: "", lastUpdated: .distantPast)
     }
 }
 
-/// Central manager for App Group storage, WidgetKit timeline reloading, and iOS Badge count synchronization
+/// Updates app-group snapshots, badges, and WidgetKit from the actual study queues.
 @MainActor
 final class WidgetDataManager {
-    static let shared = WidgetDataManager()
-    
-    // App Group identifier shared with Widget extension
-    private let appGroupID = "group.com.recallrx.app"
-    private var sharedDefaults: UserDefaults {
-        UserDefaults(suiteName: appGroupID) ?? UserDefaults.standard
-    }
-    
+    static let shared = WidgetDataManager(defaults: AppRuntime.defaults(suiteName: "group.com.recallrx.app"))
+
+    private let defaults: UserDefaults
+    let sideEffectsEnabled: Bool
     private let storageKey = "recallrx_widget_data"
-    
-    private init() {}
-    
-    // MARK: - Update Snapshot & Badge
-    
-    /// Scans the database and writes updated statistics for Home Screen widgets and the app icon badge
-    func updateWidgetData(context: ModelContext) {
-        let calendar = Calendar.current
-        let now = Date()
-        
-        let cardDescriptor = FetchDescriptor<Card>(
-            predicate: #Predicate<Card> { card in
-                !card.isSuspended && !card.isBuried
-            }
-        )
-        let cards = (try? context.fetch(cardDescriptor)) ?? []
-        
-        var totalDue = 0
-        var newCount = 0
-        var learnCount = 0
-        var reviewCount = 0
-        
-        for card in cards {
-            let state = card.state
-            if state == .new {
-                newCount += 1
-                totalDue += 1
-            } else if card.dueDate <= now {
-                totalDue += 1
-                if state == .learning || state == .relearning {
-                    learnCount += 1
-                } else {
-                    reviewCount += 1
+    private(set) var lastError: String?
+
+    init(defaults: UserDefaults, sideEffectsEnabled: Bool = true) {
+        self.defaults = defaults
+        self.sideEffectsEnabled = sideEffectsEnabled && !AppRuntime.isTesting
+    }
+
+    @discardableResult
+    func updateWidgetData(context: ModelContext, now: Date = .now) -> WidgetSnapshotData {
+        do {
+            let decks = try context.fetch(FetchDescriptor<Deck>(sortBy: [SortDescriptor(\.name)]))
+            // Use the same limits, due dates, and exclusions as an actual study session.
+            let queues = decks.map { (deck: $0, cards: Scheduler.getDueCards(from: $0, now: now)) }
+            let cards = queues.flatMap { $0.cards }
+            let logs = try context.fetch(FetchDescriptor<ReviewLog>(sortBy: [SortDescriptor(\.reviewDate, order: .reverse)]))
+            let newCount = cards.filter { $0.state == .new }.count
+            let learnCount = cards.filter { $0.state == .learning || $0.state == .relearning }.count
+            let reviewCount = cards.filter { $0.state == .review }.count
+            let topDeck = queues.filter { !$0.cards.isEmpty }.sorted {
+                if $0.cards.count != $1.cards.count { return $0.cards.count > $1.cards.count }
+                return $0.deck.name.localizedCaseInsensitiveCompare($1.deck.name) == .orderedAscending
+            }.first?.deck.displayName ?? ""
+            let snapshot = WidgetSnapshotData(
+                totalDue: cards.count, newCount: newCount, learnCount: learnCount,
+                reviewCount: reviewCount, streakDays: calculateStreak(logs: logs, now: now),
+                topDeckName: topDeck, lastUpdated: now
+            )
+            let previous = getWidgetData()
+            defaults.set(try JSONEncoder().encode(snapshot), forKey: storageKey)
+            lastError = nil
+
+            if sideEffectsEnabled {
+                updateAppBadge(count: snapshot.totalDue)
+                if !sameContent(snapshot, previous) {
+                    #if canImport(WidgetKit)
+                    WidgetCenter.shared.reloadTimelines(ofKind: "RecallRxDue")
+                    #endif
                 }
             }
-        }
-        
-        // Calculate streak from review logs
-        let logDescriptor = FetchDescriptor<ReviewLog>(
-            sortBy: [SortDescriptor(\.reviewDate, order: .reverse)]
-        )
-        let logs = (try? context.fetch(logDescriptor)) ?? []
-        let streak = calculateStreak(logs: logs, calendar: calendar)
-        
-        // Determine top deck with most due cards
-        let deckDescriptor = FetchDescriptor<Deck>()
-        let decks = (try? context.fetch(deckDescriptor)) ?? []
-        let topDeck = decks.max(by: { d1, d2 in
-            let c1 = d1.cards.filter { !$0.isSuspended && !$0.isBuried && ($0.state == .new || $0.dueDate <= now) }.count
-            let c2 = d2.cards.filter { !$0.isSuspended && !$0.isBuried && ($0.state == .new || $0.dueDate <= now) }.count
-            return c1 < c2
-        })?.name ?? "Medical Collection"
-        
-        let snapshot = WidgetSnapshotData(
-            totalDue: totalDue,
-            newCount: newCount,
-            learnCount: learnCount,
-            reviewCount: reviewCount,
-            streakDays: streak,
-            topDeckName: topDeck,
-            lastUpdated: now
-        )
-        
-        // Save to Shared UserDefaults for WidgetKit
-        if let encoded = try? JSONEncoder().encode(snapshot) {
-            sharedDefaults.set(encoded, forKey: storageKey)
-        }
-        
-        // Synchronize App Icon Badge Count
-        updateAppBadge(count: totalDue)
-        
-        // Reload Widget Timelines
-        #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadAllTimelines()
-        #endif
-    }
-    
-    /// Reads the current widget data snapshot
-    func getWidgetData() -> WidgetSnapshotData {
-        if let data = sharedDefaults.data(forKey: storageKey),
-           let snapshot = try? JSONDecoder().decode(WidgetSnapshotData.self, from: data) {
             return snapshot
+        } catch {
+            lastError = error.localizedDescription
+            print("[WidgetDataManager] Could not update widget data: \(error.localizedDescription)")
+            // A failed fetch must not replace a previously valid snapshot with fake zeroes.
+            return getWidgetData()
         }
-        return WidgetSnapshotData.placeholder
     }
-    
-    // MARK: - Badge Count
-    
+
+    func getWidgetData() -> WidgetSnapshotData {
+        guard let data = defaults.data(forKey: storageKey),
+              let snapshot = try? JSONDecoder().decode(WidgetSnapshotData.self, from: data) else {
+            return .empty
+        }
+        return snapshot
+    }
+
+    private func sameContent(_ lhs: WidgetSnapshotData, _ rhs: WidgetSnapshotData) -> Bool {
+        lhs.totalDue == rhs.totalDue && lhs.newCount == rhs.newCount
+            && lhs.learnCount == rhs.learnCount && lhs.reviewCount == rhs.reviewCount
+            && lhs.streakDays == rhs.streakDays && lhs.topDeckName == rhs.topDeckName
+    }
+
     private func updateAppBadge(count: Int) {
-        if #available(iOS 16.0, *) {
-            UNUserNotificationCenter.current().setBadgeCount(count) { error in
-                if let error = error {
-                    print("[RecallRx] Error updating badge count: \(error.localizedDescription)")
-                }
+        guard sideEffectsEnabled else { return }
+        UNUserNotificationCenter.current().setBadgeCount(count) { error in
+            if let error {
+                print("[WidgetDataManager] Could not update badge: \(error.localizedDescription)")
             }
         }
     }
-    
-    // MARK: - Streak Calculation
-    
-    private func calculateStreak(logs: [ReviewLog], calendar: Calendar) -> Int {
-        guard !logs.isEmpty else { return 0 }
-        
-        var uniqueDays: Set<Date> = []
-        for log in logs {
-            let startOfDay = calendar.startOfDay(for: log.reviewDate)
-            uniqueDays.insert(startOfDay)
+
+    private func calculateStreak(logs: [ReviewLog], now: Date) -> Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        let days = Set(logs.filter { $0.reviewDate <= now }.map { calendar.startOfDay(for: $0.reviewDate) })
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        guard let first = days.contains(today) ? today : (days.contains(yesterday) ? yesterday : nil) else { return 0 }
+        var count = 0
+        var current = first
+        while days.contains(current) {
+            count += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: current) else { break }
+            current = previous
         }
-        
-        let sortedDays = uniqueDays.sorted(by: >)
-        let today = calendar.startOfDay(for: Date())
-        
-        // Check if user reviewed today or yesterday
-        guard let mostRecent = sortedDays.first,
-              let dayDifference = calendar.dateComponents([.day], from: mostRecent, to: today).day,
-              dayDifference <= 1 else {
-            return 0
-        }
-        
-        var currentStreak = 0
-        var checkDate = mostRecent
-        
-        for day in sortedDays {
-            if day == checkDate {
-                currentStreak += 1
-                checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate)!
-            } else {
-                break
-            }
-        }
-        
-        return currentStreak
+        return count
     }
 }

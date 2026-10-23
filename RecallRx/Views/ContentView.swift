@@ -5,6 +5,8 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("appAccentColor") private var appAccentColor = "Teal"
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var showingFirstRunOnboarding = false
     
     @State private var selectedTab: Tab = .decks
     
@@ -68,13 +70,18 @@ struct ContentView: View {
         .sheet(item: $activeSheet) { sheet in
             sheetDestination(sheet)
         }
+        .fullScreenCover(isPresented: $showingFirstRunOnboarding) {
+            OnboardingView()
+                .interactiveDismissDisabled()
+        }
         .task {
-            let descriptor = FetchDescriptor<Card>()
-            let cards = (try? modelContext.fetch(descriptor)) ?? []
-            if !cards.contains(where: { $0.noteTypeRaw == NoteType.imageOcclusion.rawValue }) {
-                SampleMedicalData.loadSampleMedicalDeck(into: modelContext)
+            guard !AppRuntime.isTesting else { return }
+            showingFirstRunOnboarding = !hasCompletedOnboarding
+            #if DEBUG
+            if AppRuntime.isUIAutomationEnabled {
+                await monitorCommands()
             }
-            monitorCommands()
+            #endif
         }
     }
     
@@ -142,14 +149,17 @@ struct ContentView: View {
                 Text("No deck")
             }
         case .uworldSync:
-            UWorldSyncView(autoLoadSample: true)
+            UWorldSyncView(autoLoadSample: AppRuntime.isUIAutomationEnabled)
         case .studyRemote:
             if let deck = fetchFirstDeck() {
                 StudyView(deck: deck)
                     .onAppear {
+                        #if DEBUG
+                        guard AppRuntime.isUIAutomationEnabled else { return }
                         BluetoothControllerManager.shared.simulateConnection(name: "8BitDo Micro (Bluetooth)")
                         BluetoothControllerManager.shared.lastPressedButton = "Button A (Good)"
                         BluetoothControllerManager.shared.lastPressTime = Date()
+                        #endif
                     }
             } else {
                 Text("No deck")
@@ -157,7 +167,7 @@ struct ContentView: View {
         case .shelfCram:
             FilteredDeckConfigView()
         case .pdfGenerator:
-            PDFImportGeneratorView(autoLoadSample: true)
+            PDFImportGeneratorView(autoLoadSample: AppRuntime.isUIAutomationEnabled)
         case .drivingMode:
             if let deck = fetchFirstDeck() {
                 DrivingModeView(deck: deck)
@@ -172,7 +182,7 @@ struct ContentView: View {
     private func fetchFirstDeck() -> Deck? {
         let descriptor = FetchDescriptor<Deck>(sortBy: [SortDescriptor(\.name)])
         let decks = (try? modelContext.fetch(descriptor)) ?? []
-        return decks.first(where: { !$0.name.contains("Test") }) ?? decks.first
+        return decks.first
     }
     
     private func fetchFirstCard() -> Card? {
@@ -180,7 +190,9 @@ struct ContentView: View {
         return (try? modelContext.fetch(descriptor))?.first
     }
     
+    #if DEBUG
     private func applyScreen(_ screen: String) {
+        guard AppRuntime.isUIAutomationEnabled else { return }
         if activeSheet != nil {
             activeSheet = nil
             Task {
@@ -195,6 +207,7 @@ struct ContentView: View {
     }
     
     private func presentTargetScreen(_ screen: String) {
+        guard AppRuntime.isUIAutomationEnabled else { return }
         withAnimation(reduceMotion ? nil : .default) {
             switch screen {
             case "decks":
@@ -280,23 +293,26 @@ struct ContentView: View {
         }
     }
     
-    private func monitorCommands() {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+    private func monitorCommands() async {
+        guard AppRuntime.isUIAutomationEnabled,
+              let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let navFile = docs.appendingPathComponent("navigate.txt")
-        
-        Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                if let content = try? String(contentsOf: navFile, encoding: .utf8) {
-                    let cmd = content.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !cmd.isEmpty {
-                        await MainActor.run {
-                            applyScreen(cmd)
-                        }
-                        try? "".write(to: navFile, atomically: true, encoding: .utf8)
-                    }
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: 300_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            if let content = try? String(contentsOf: navFile, encoding: .utf8) {
+                let command = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !command.isEmpty {
+                    applyScreen(command)
+                    try? "".write(to: navFile, atomically: true, encoding: .utf8)
                 }
             }
         }
     }
+    #endif
 }

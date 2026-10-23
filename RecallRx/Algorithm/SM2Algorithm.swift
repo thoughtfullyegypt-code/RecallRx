@@ -53,21 +53,32 @@ struct SM2Algorithm {
     static let maximumInterval: Double = 36500.0 // 100 years
     
     // MARK: - Core Review Logic
-    static func review(card: Card, rating: Rating) -> ReviewResult {
+    static func review(
+        card: Card,
+        rating: Rating,
+        parameters: SM2SchedulingParameters = .load()
+    ) -> ReviewResult {
         switch card.state {
         case .new:
-            return reviewNewCard(card: card, rating: rating)
+            return reviewNewCard(card: card, rating: rating, parameters: parameters)
         case .learning:
-            return reviewLearningCard(card: card, rating: rating)
+            return reviewLearningCard(card: card, rating: rating, parameters: parameters)
         case .review:
             return reviewReviewCard(card: card, rating: rating)
         case .relearning:
-            return reviewRelearningCard(card: card, rating: rating)
+            return reviewRelearningCard(card: card, rating: rating, parameters: parameters)
         }
     }
     
     // MARK: - New Cards
-    private static func reviewNewCard(card: Card, rating: Rating) -> ReviewResult {
+    private static func reviewNewCard(
+        card: Card,
+        rating: Rating,
+        parameters: SM2SchedulingParameters
+    ) -> ReviewResult {
+        let learningSteps = parameters.learningStepsMinutes
+        let graduatingInterval = parameters.graduatingInterval
+        let easyInterval = parameters.easyInterval
         switch rating {
         case .again:
             let ease = max(minimumEaseFactor, card.easeFactor - 0.2)
@@ -126,7 +137,14 @@ struct SM2Algorithm {
     }
     
     // MARK: - Learning Cards
-    private static func reviewLearningCard(card: Card, rating: Rating) -> ReviewResult {
+    private static func reviewLearningCard(
+        card: Card,
+        rating: Rating,
+        parameters: SM2SchedulingParameters
+    ) -> ReviewResult {
+        let learningSteps = parameters.learningStepsMinutes
+        let graduatingInterval = parameters.graduatingInterval
+        let easyInterval = parameters.easyInterval
         let currentStep = max(0, min(card.learningStep, learningSteps.count - 1))
         
         switch rating {
@@ -187,7 +205,13 @@ struct SM2Algorithm {
     }
     
     // MARK: - Relearning Cards
-    private static func reviewRelearningCard(card: Card, rating: Rating) -> ReviewResult {
+    private static func reviewRelearningCard(
+        card: Card,
+        rating: Rating,
+        parameters: SM2SchedulingParameters
+    ) -> ReviewResult {
+        let graduatingInterval = parameters.graduatingInterval
+        let easyInterval = parameters.easyInterval
         let currentStep = max(0, min(card.learningStep, relearningSteps.count - 1))
         
         switch rating {
@@ -302,8 +326,12 @@ struct SM2Algorithm {
     }
     
     // MARK: - Description Formatter
-    static func nextIntervalDescription(card: Card, rating: Rating) -> String {
-        let result = review(card: card, rating: rating)
+    static func nextIntervalDescription(
+        card: Card,
+        rating: Rating,
+        parameters: SM2SchedulingParameters = .load()
+    ) -> String {
+        let result = review(card: card, rating: rating, parameters: parameters)
         return formatInterval(days: result.newInterval, state: result.newState)
     }
     

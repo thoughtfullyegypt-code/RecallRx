@@ -1,16 +1,9 @@
 import Foundation
+import Combine
 import AVFoundation
 import Speech
 import MediaPlayer
 import SwiftData
-
-/// Voice Command Types Recognized in Driving Mode
-enum DrivingVoiceCommand: String, CaseIterable, Sendable {
-    case repeatQuestion = "repeat"
-    case skipCard = "skip"
-    case requestHint = "hint"
-    case stopSession = "stop"
-}
 
 /// Recorded Card Review During Driving Session (Used for Parked Review Audit)
 struct DriveCardReviewRecord: Identifiable, Sendable {
@@ -89,35 +82,6 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     private var silenceTimer: Task<Void, Never>?
     private var sessionMaxCards: Int = 25
     
-    // Medical synonyms dictionary for fuzzy matching
-    private let medicalSynonyms: [String: [String]] = [
-        "mi": ["myocardial infarction", "heart attack"],
-        "myocardial infarction": ["mi", "heart attack"],
-        "heart attack": ["mi", "myocardial infarction"],
-        "pe": ["pulmonary embolism"],
-        "pulmonary embolism": ["pe"],
-        "hcm": ["hypertrophic cardiomyopathy", "hocm"],
-        "hypertrophic cardiomyopathy": ["hcm", "hocm"],
-        "chf": ["congestive heart failure", "heart failure"],
-        "heart failure": ["chf", "congestive heart failure"],
-        "nsaid": ["nonsteroidal anti-inflammatory", "ibuprofen", "naproxen", "indomethacin"],
-        "nsaids": ["nonsteroidal anti-inflammatory drugs", "ibuprofen", "naproxen", "indomethacin"],
-        "copd": ["chronic obstructive pulmonary disease"],
-        "pcr": ["polymerase chain reaction"],
-        "gerd": ["acid reflux", "gastroesophageal reflux disease"],
-        "ace inhibitor": ["lisinopril", "enalapril", "ramipril"],
-        "arb": ["losartan", "valsartan"],
-        "dvt": ["deep vein thrombosis"],
-        "pci": ["percutaneous coronary intervention", "angioplasty"],
-        "percutaneous": ["pci"],
-        "coronary": ["pci"],
-        "intervention": ["pci"]
-    ]
-    
-    private let stopWords: Set<String> = [
-        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "as", "is", "are", "was", "were"
-    ]
-    
     override private init() {
         super.init()
         speechSynthesizer.delegate = self
@@ -190,27 +154,24 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     /// - Excludes Image Occlusion notes
     /// - Excludes cards longer than 220 characters
     static func filterEligibleCards(from cards: [Card], maxLimit: Int = 25) -> [Card] {
-        return cards.filter { card in
-            // 1. Must not be suspended or buried
-            guard !card.isSuspended && !card.isBuried else { return false }
-            
-            // 2. Must be already learned (interval >= 1.0 day or review state)
-            guard card.interval >= 1.0 || card.state == .review else { return false }
-            
-            // 3. Skip image occlusion notes
-            guard card.noteType != .imageOcclusion else { return false }
-            
-            // 4. Skip excessively long question or answers (> 220 chars)
-            let cleanFront = card.front.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            let cleanBack = card.back.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            guard cleanFront.count <= 220 && cleanBack.count <= 220 else { return false }
-            
-            return true
+        cards.filter { card in
+            guard !card.isSuspended, !card.isBuried,
+                  card.interval >= 1.0 || card.state == .review else { return false }
+            return audioContent(for: card) != nil
         }
-        .prefix(maxLimit)
+        .prefix(max(0, maxLimit))
         .map { $0 }
     }
-    
+
+    static func audioContent(for card: Card) -> AudioStudyContent? {
+        AudioStudyContent.make(front: card.front, back: card.back, noteType: card.noteType)
+    }
+
+    var currentQuestion: String {
+        guard let currentCard else { return "" }
+        return Self.audioContent(for: currentCard)?.question ?? "This card needs visual review."
+    }
+
     // MARK: - Session Lifecycle
     
     func startSession(cards: [Card], maxCards: Int = 25) {
@@ -220,8 +181,10 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         self.sessionHistory.removeAll()
         self.currentIndex = 0
         self.permissionMessage = ""
+        self.currentCard = nil
 
         guard !eligibleCards.isEmpty else {
+            self.permissionMessage = "No audio-ready learned cards. Short text questions need a spoken answer; visual notes, malformed blanks, and unanswered cards are skipped."
             self.state = .completed
             return
         }
@@ -256,6 +219,7 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         silenceTimer?.cancel()
         speechSynthesizer.stopSpeaking(at: .immediate)
         stopListening()
+        self.currentCard = nil
         self.state = .completed
     }
     
@@ -275,12 +239,16 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     
     private func speakCurrentQuestion() {
         guard let card = currentCard else { return }
+        guard let content = Self.audioContent(for: card) else {
+            skipCurrentCard()
+            return
+        }
         silenceTimer?.cancel()
+        speechSynthesizer.stopSpeaking(at: .immediate)
         stopListening()
-        
+
         self.state = .speakingQuestion
-        let cleanFront = sanitizeSpeechText(card.front)
-        let prompt = "Question: \(cleanFront)"
+        let prompt = "Question: \(content.question)"
         
         let utterance = AVSpeechUtterance(string: prompt)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
@@ -310,8 +278,15 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         speechSynthesizer.stopSpeaking(at: .immediate)
         stopListening()
         
-        let hint = card.clinicalPearls.isEmpty ? (card.extra.isEmpty ? "No hint available for this card." : card.extra) : card.clinicalPearls
+        guard let content = Self.audioContent(for: card) else {
+            skipCurrentCard()
+            return
+        }
+        let hint = content.isCloze
+            ? "Say the missing term for each blank."
+            : (card.clinicalPearls.isEmpty ? (card.extra.isEmpty ? "No hint available for this card." : card.extra) : card.clinicalPearls)
         let cleanHint = sanitizeSpeechText(hint)
+        self.state = .speakingQuestion
         let utterance = AVSpeechUtterance(string: "Hint: \(cleanHint)")
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = 0.50
@@ -340,28 +315,24 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     
     private func startListening() {
         guard let card = currentCard else { return }
+        guard let content = Self.audioContent(for: card) else {
+            skipCurrentCard()
+            return
+        }
+        guard speechRecognizer?.supportsOnDeviceRecognition == true else {
+            permissionMessage = "On-device speech recognition is unavailable on this device. Audio review was stopped without grading this card."
+            stopSession()
+            return
+        }
         self.state = .listeningForAnswer
         self.currentTranscript = ""
         
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest = recognitionRequest else { return }
         
-        // 100% On-Device & Free Recognition
-        if speechRecognizer?.supportsOnDeviceRecognition == true {
-            recognitionRequest.requiresOnDeviceRecognition = true
-        }
-        
-        // Feed the expected answer and medical synonyms as contextual strings for noise robustness
-        let cleanBack = sanitizeSpeechText(card.back)
-        var contextualVocab = cleanBack.components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { $0.count > 2 }
-        for (key, synonyms) in medicalSynonyms {
-            if cleanBack.localizedCaseInsensitiveContains(key) {
-                contextualVocab.append(contentsOf: synonyms)
-            }
-        }
-        recognitionRequest.contextualStrings = Array(Set(contextualVocab))
-        
+        recognitionRequest.requiresOnDeviceRecognition = true
+        recognitionRequest.contextualStrings = AudioStudyAnswerEvaluator.contextualVocabulary(for: content.expectedAnswers)
+
         let node = audioEngine.inputNode
         let recordingFormat = node.outputFormat(forBus: 0)
         if tapInstalled {
@@ -377,9 +348,11 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
             audioEngine.prepare()
             try audioEngine.start()
         } catch {
-            print("[DrivingMode] Could not start audio engine: \(error)")
+            permissionMessage = "Audio recording could not start. This card was not graded."
+            stopSession()
+            return
         }
-        
+
         // Start 7-second silence timeout
         startSilenceTimer()
         
@@ -447,19 +420,9 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     // MARK: - Voice Command Detection
     
     func detectVoiceCommand(in text: String) -> DrivingVoiceCommand? {
-        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if lower.contains("repeat") || lower.contains("say again") {
-            return .repeatQuestion
-        } else if lower.contains("skip") || lower.contains("next card") {
-            return .skipCard
-        } else if lower.contains("hint") || lower.contains("give me a hint") {
-            return .requestHint
-        } else if lower.contains("stop") || lower.contains("end drive") || lower.contains("pause") {
-            return .stopSession
-        }
-        return nil
+        AudioStudyAnswerEvaluator.voiceCommand(in: text)
     }
-    
+
     private func handleVoiceCommand(_ command: DrivingVoiceCommand) {
         silenceTimer?.cancel()
         stopListening()
@@ -484,38 +447,28 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
     /// - Wrong, silence, "I don't know" -> Again (Rating 0)
     /// - STRICT: NEVER Easy (Rating 3 is strictly prevented)
     func evaluateAnswer(card: Card, spokenText: String) {
-        let cleanSpoken = spokenText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let cleanExpected = sanitizeSpeechText(card.back).lowercased()
-        
-        // 1. Silence or explicit surrender
-        if cleanSpoken.isEmpty || cleanSpoken.contains("i don't know") || cleanSpoken.contains("no idea") || cleanSpoken.contains("pass") {
-            applyGradingResult(card: card, rating: .again, score: 0.0, spoken: spokenText, feedback: "Incorrect. The answer is: \(cleanExpected)")
+        guard let content = Self.audioContent(for: card) else {
+            permissionMessage = "This note needs visual review and was not graded."
+            if currentCard?.id == card.id { skipCurrentCard() }
             return
         }
-        
-        // 2. Compute similarity score with medical synonyms
-        let score = computeSimilarity(spoken: cleanSpoken, expected: cleanExpected)
-        
-        // 3. Map to Rating: Good, Hard, Again. NEVER Easy.
-        let rating: Rating
+        let result = AudioStudyAnswerEvaluator.evaluate(spoken: spokenText, expectedAnswers: content.expectedAnswers)
+        let rating = Rating(rawValue: result.rating) ?? .again
         let feedback: String
-        
-        if score >= 0.70 {
-            rating = .good
+        switch rating {
+        case .good:
             feedback = "Correct! Good job."
-        } else if score >= 0.35 {
-            rating = .hard
-            feedback = "Partially correct. The full answer is: \(cleanExpected)"
-        } else {
-            rating = .again
-            feedback = "Incorrect. The answer is: \(cleanExpected)"
+        case .hard:
+            feedback = "Partially correct. The full answer is: \(content.expectedAnswer)"
+        case .again, .easy:
+            feedback = "Incorrect. The answer is: \(content.expectedAnswer)"
         }
-        
-        applyGradingResult(card: card, rating: rating, score: score, spoken: spokenText, feedback: feedback)
+        applyGradingResult(card: card, content: content, rating: rating, score: result.similarity, spoken: spokenText, feedback: feedback)
     }
-    
+
     private func applyGradingResult(
         card: Card,
+        content: AudioStudyContent,
         rating: Rating,
         score: Double,
         spoken: String,
@@ -527,8 +480,8 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         // Record review record for parked review audit sheet
         let record = DriveCardReviewRecord(
             card: card,
-            question: sanitizeSpeechText(card.front),
-            expectedAnswer: sanitizeSpeechText(card.back),
+            question: content.question,
+            expectedAnswer: content.expectedAnswer,
             userTranscript: spoken.isEmpty ? "(Silence / Unrecognized)" : spoken,
             assignedRating: safeRating,
             similarityScore: score
@@ -543,77 +496,16 @@ final class DrivingModeManager: NSObject, ObservableObject, AVSpeechSynthesizerD
         speechSynthesizer.speak(utterance)
     }
     
-    /// Computes similarity score (0.0 to 1.0) using token overlap, Levenshtein distance, and medical synonyms
     func computeSimilarity(spoken: String, expected: String) -> Double {
-        let spokenTokens = Set(spoken.components(separatedBy: CharacterSet.alphanumerics.inverted).map { $0.lowercased() }.filter { $0.count > 1 && !stopWords.contains($0) })
-        let expectedTokens = Set(expected.components(separatedBy: CharacterSet.alphanumerics.inverted).map { $0.lowercased() }.filter { $0.count > 1 && !stopWords.contains($0) })
-        
-        guard !expectedTokens.isEmpty else { return 0.0 }
-        
-        var matches = 0.0
-        for exp in expectedTokens {
-            if spokenTokens.contains(exp) {
-                matches += 1.0
-                continue
-            }
-            
-            // Check medical synonyms
-            if let synonyms = medicalSynonyms[exp] {
-                if synonyms.contains(where: { spokenTokens.contains($0) || spoken.contains($0) }) {
-                    matches += 1.0
-                    continue
-                }
-            }
-            
-            // Substring fuzzy matching
-            if spokenTokens.contains(where: { token in
-                guard token.count >= 5, exp.count >= 5 else { return false }
-                return token.hasPrefix(exp) || exp.hasPrefix(token) || levenshteinDistance(token, exp) <= 1
-            }) {
-                matches += 0.8
-            }
-        }
-        
-        return min(1.0, matches / Double(expectedTokens.count))
+        AudioStudyAnswerEvaluator.similarity(spoken: spoken, expected: expected)
     }
-    
-    private func levenshteinDistance(_ s1: String, _ s2: String) -> Int {
-        let a = Array(s1)
-        let b = Array(s2)
-        var dist = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
-        
-        for i in 0...a.count { dist[i][0] = i }
-        for j in 0...b.count { dist[0][j] = j }
-        
-        for i in 1...a.count {
-            for j in 1...b.count {
-                if a[i - 1] == b[j - 1] {
-                    dist[i][j] = dist[i - 1][j - 1]
-                } else {
-                    dist[i][j] = min(
-                        dist[i - 1][j] + 1,
-                        dist[i][j - 1] + 1,
-                        dist[i - 1][j - 1] + 1
-                    )
-                }
-            }
-        }
-        return dist[a.count][b.count]
-    }
-    
+
     // MARK: - Text Sanitizer
     
     func sanitizeSpeechText(_ text: String) -> String {
-        var clean = text.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-        clean = clean.replacingOccurrences(of: "\\{\\{c\\d+::(.*?)\\}\\}", with: "$1", options: .regularExpression)
-        clean = clean.replacingOccurrences(of: "&nbsp;", with: " ")
-        clean = clean.replacingOccurrences(of: "&amp;", with: "and")
-        clean = clean.replacingOccurrences(of: "&lt;", with: "less than")
-        clean = clean.replacingOccurrences(of: "&gt;", with: "greater than")
-        clean = clean.replacingOccurrences(of: "\n", with: ". ")
-        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+        AudioStudyContent.sanitize(text)
     }
-    
+
     // MARK: - Parked Review & Grade Adjustment
     
     /// Commits all final ratings from the driving session into the database

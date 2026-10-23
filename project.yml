@@ -6,7 +6,7 @@ options:
   xcodeVersion: "15.0"
   generateEmptyDirectories: true
 settings:
-  SWIFT_VERSION: "5.9"
+  SWIFT_VERSION: "5.0"
   MARKETING_VERSION: "1.0.0"
   CURRENT_PROJECT_VERSION: "1"
   GENERATE_INFOPLIST_FILE: YES
@@ -60,6 +60,7 @@ targets:
       CODE_SIGN_STYLE: Automatic
       DEVELOPMENT_TEAM: ""
       SWIFT_EMIT_LOC_STRINGS: YES
+      APPLICATION_EXTENSION_API_ONLY: YES
   RecallRxTests:
     type: bundle.unit-test
     platform: iOS
@@ -74,3 +75,29 @@ targets:
       BUNDLE_LOADER: $(TEST_HOST)
       DEVELOPMENT_TEAM: ""
       CODE_SIGN_STYLE: Automatic
+schemes:
+  RecallRx:
+    management:
+      shared: true
+    build:
+      targets:
+        RecallRx: all
+        RecallRxTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      coverageTargets:
+        - RecallRx
+      targets:
+        - name: RecallRxTests
+          parallelizable: false
+      environmentVariables:
+        RECALLRX_TESTING: "1"
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

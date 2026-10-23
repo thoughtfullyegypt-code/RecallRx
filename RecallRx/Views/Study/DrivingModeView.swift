@@ -77,13 +77,18 @@ struct DrivingModeView: View {
                         }
                         .padding(.horizontal, 20)
                     }
-                    
+
+                    Text("Audio review uses short, learned text cards. Visual and unanswered notes are skipped; hidden deletions are read as ‘blank’.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 20)
+
                     Spacer()
-                    
+
                     // Main Card HUD Area
                     if let card = drivingManager.currentCard {
                         VStack(spacing: 16) {
-                            Text(drivingManager.sanitizeSpeechText(card.front))
+                            Text(drivingManager.currentQuestion)
                                 .font(.system(size: 26, weight: .bold, design: .rounded))
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
@@ -140,7 +145,7 @@ struct DrivingModeView: View {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 60))
                                 .foregroundColor(.green)
-                            Text("Drive Review Complete!")
+                            Text(drivingManager.sessionHistory.isEmpty ? "No audio reviews completed" : "Audio review complete")
                                 .font(.title2.bold())
                                 .foregroundColor(.white)
                             Text("Reviewed \(drivingManager.sessionHistory.count) cards hands-free.")
